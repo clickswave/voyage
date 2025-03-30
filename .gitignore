@@ -1,0 +1,58 @@
+# Rust target directory
+/target/
+**/target/
+
+# Rust build artifacts
+**/*.rs.bk
+**/*.rmeta
+**/*.rlib
+
+# Cargo
+Cargo.lock
+.cargo/
+.cargo-targets.toml
+
+# Rust debugging and profiling
+*.dSYM/
+*.profraw
+*.profdata
+
+# Binaries and executables
+*.exe
+*.out
+*.app
+*.dll
+*.so
+*.dylib
+
+# JetBrains IDEs (RustRover, IntelliJ, CLion)
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+.cache/
+logs/
+node_modules/
+
+# VS Code
+.vscode/
+*.code-workspace
+.vscode-test/
+
+# SQLite database files
+*.db
+*.db-wal
+*.sqlite-wal
+*.sqlite-shm
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Miscellaneous
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.txt
+.sqlx
