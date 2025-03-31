@@ -19,7 +19,6 @@ pub async fn csv (
     }
 
     wtr.flush()?;
-
     Ok(())
 }
 

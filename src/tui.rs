@@ -1,4 +1,4 @@
-use crate::libs;
+use crate::libs::args::Args;
 use crate::libs::sqlite::{Log, ScanResults};
 use crossterm::event;
 use crossterm::event::{Event, KeyCode};
@@ -11,9 +11,9 @@ use ratatui::widgets::{Block, BorderType, Cell, Gauge, HighlightSpacing, Row, Ta
 use ratatui::DefaultTerminal;
 use sqlx::SqlitePool;
 use std::io;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use tokio::time::Duration;
-use crate::libs::args::Args;
+use crate::libs;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Tab {
@@ -21,7 +21,7 @@ pub enum Tab {
     Logs,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Tui {
     pub halt: bool,
     pub pause: Arc<core::sync::atomic::AtomicBool>,
@@ -29,52 +29,47 @@ pub struct Tui {
     pub refresh_rate: f64,
     pub sqlite_pool: SqlitePool,
     pub scan_id: String,
-    pub results: ScanResults,
-    pub logs: Vec<Log>,
+    pub results: Arc<RwLock<ScanResults>>,
+    pub logs: Arc<RwLock<Vec<Log>>>,
     pub log_level: Arc<Mutex<String>>,
     pub status: String,
     pub current_tab: Tab,
-    pub output_written: bool,
     pub args: Args,
+    pub output_written: bool,
 }
 
 impl Tui {
     pub async fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
         while !self.halt {
-            let get_progress =
-                libs::sqlite::get_results(self.scan_id.clone(), self.sqlite_pool.clone()).await;
-            if let Ok(results) = get_progress {
-                self.results = results;
+            self.status = if self.results.read().unwrap().found.len() as i32 + self.results.read().unwrap().not_found >= self.results.read().unwrap().total  {
+                if self.output_written == false {
+                    let write_output = crate::export_results::export(
+                        self.scan_id.clone(),
+                        self.sqlite_pool.clone(),
+                        self.args.output_path.clone(),
+                        self.args.output_format.clone().to_string(),
+                    ).await;
 
-                self.status = if self.results.found.len() as i32 + self.results.not_found
-                    >= self.results.total
-                {
-                    if !self.output_written {
-                        let _ = crate::export_results::export(
-                            self.scan_id.clone(),
-                            self.sqlite_pool.clone(),
-                            self.args.output_path.clone(),
-                            self.args.output_format.to_string().clone(),
-                        ).await;
-                        self.output_written = true;
+                    match write_output {
+                        Ok(_) => {
+                            self.output_written = true;
+                        }
+                        Err(e) => {
+                            let _ = libs::sqlite::insert_log(
+                                self.scan_id.clone(),
+                                "error".to_string(),
+                                format!("Error writing output: {}", e),
+                                &self.sqlite_pool,
+                            ).await;
+                        }
                     }
-
-                    "Completed".to_string()
-                } else if self.pause.load(core::sync::atomic::Ordering::SeqCst) {
-                    "Paused".to_string()
-                } else {
-                    "Running".to_string()
-                };
-            }
-            let get_logs = libs::sqlite::get_logs(
-                self.scan_id.clone(),
-                self.log_level.lock().unwrap().clone(),
-                self.sqlite_pool.clone(),
-            ).await;
-
-            if let Ok(logs) = get_logs {
-                self.logs = logs;
-            }
+                }
+                "Completed".to_string()
+            } else if self.pause.load(core::sync::atomic::Ordering::SeqCst) {
+                "Paused".to_string()
+            } else {
+                "Running".to_string()
+            };
 
             terminal.draw(|frame| self.render(frame.area(), frame.buffer_mut()))?;
 
@@ -86,7 +81,7 @@ impl Tui {
 
     async fn handle_events(&mut self) -> io::Result<()> {
         let timeout = (1000.0 / self.refresh_rate) as u64;
-        if event::poll(Duration::from_millis(600000))? {
+        if event::poll(Duration::from_millis(timeout))? {
             if let Event::Key(key_event) = event::read()? {
                 match key_event.code {
                     KeyCode::Char('q') | KeyCode::Char('Q') => self.halt = true,
@@ -151,29 +146,25 @@ impl Widget for &Tui {
             .border_type(BorderType::Rounded);
         block.render(area, buf);
 
-        let progress_percentage = if self.results.total > 0 {
-            ((self.results.found.len() as i32 + self.results.not_found) as f64
-                / self.results.total as f64
-                * 100.0)
-                .round() as u32
+        let total = self.results.read().unwrap().total;
+        let found_len = self.results.read().unwrap().found.len() as i32;
+        let not_found = self.results.read().unwrap().not_found;
+
+        let progress_percentage = if total > 0 {
+            ((found_len + not_found) as f64 / total as f64 * 100.0).round() as u32
         } else {
             0
         };
 
         let progress_text = format!(
             "Progress: {}% | Found: {} | Total: {}",
-            progress_percentage,
-            self.results.found.len(),
-            self.results.total
+            progress_percentage, found_len, total
         );
         let progress_area = Rect::new(1, 1, area.width - 2, 1);
 
         Gauge::default()
             .gauge_style(Style::default().fg(Color::Indexed(2)).bg(Color::Indexed(0)))
-            .ratio(
-                (self.results.found.len() as i32 + self.results.not_found) as f64
-                    / self.results.total as f64,
-            )
+            .ratio((found_len + not_found) as f64 / total as f64)
             .label(progress_text)
             .render(progress_area, buf);
 
@@ -188,8 +179,10 @@ impl Tui {
     fn render_home(&self, area: Rect, buf: &mut Buffer) {
         let visible_items = area.height - 4;
 
+        let found_items = self.results.read().unwrap().clone();
+
         let mut displayed_list = vec![];
-        for (index, result) in self.results.found.iter().enumerate() {
+        for (index, result) in found_items.found.iter().enumerate() {
             if index >= self.scroll_offset && index < self.scroll_offset + visible_items as usize {
                 let status_style = Style::default().fg(Color::Green);
                 let row = Row::new(vec![
@@ -253,7 +246,7 @@ impl Tui {
         let visible_items = area.height as usize - 4;
         let mut displayed_list = vec![];
 
-        for (index, log) in self.logs.iter().enumerate() {
+        for (index, log) in self.logs.read().unwrap().iter().enumerate() {
             if index < self.scroll_offset || index >= self.scroll_offset + visible_items {
                 continue;
             }
@@ -285,7 +278,7 @@ impl Tui {
         .style(Style::default().fg(Color::White));
 
         let instructions = Line::from(" <Up/Down> Navigate | <Left/Right> Cycle Log Level ".bold());
-        let logs_len = Line::from(self.logs.len().to_string());
+        let logs_len = Line::from(self.logs.read().unwrap().len().to_string());
 
         let table = Table::new(
             std::iter::once(header_row)

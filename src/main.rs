@@ -5,7 +5,7 @@ mod task_handles;
 mod tui;
 
 use std::process::exit;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use task_handles::domain_enumerator;
 
 #[tokio::main]
@@ -182,7 +182,8 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let is_paused = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let log_level = Arc::new(Mutex::new(args.log_level.to_string()));
-
+    let results_arc = Arc::new(RwLock::new(libs::sqlite::get_results(scan.id.clone(), sqlite_pool.clone()).await?));
+    let logs_arc = Arc::new(RwLock::new(libs::sqlite::get_logs(scan.id.clone(), "debug".to_string(), sqlite_pool.clone()).await?));
     // setup threads
     let mut threads = vec![];
     // push scanner threads
@@ -206,6 +207,14 @@ async fn main() -> Result<(), anyhow::Error> {
         format!("Enumeration tasks spawned: {}", args.tasks.clone()),
         &sqlite_pool,
     ).await?;
+    // push result mutator thread
+    let result_mutator = tokio::spawn(task_handles::result_mutator::handle(
+        scan.id.clone(),
+        sqlite_pool.clone(),
+        results_arc.clone(),
+        logs_arc.clone()
+    ));
+    threads.push(result_mutator);
 
     // setup tui
     let mut terminal = ratatui::init();
@@ -216,11 +225,10 @@ async fn main() -> Result<(), anyhow::Error> {
         refresh_rate: 1.0,
         sqlite_pool: sqlite_pool.clone(),
         scan_id: scan.id.clone(),
-        results: libs::sqlite::get_results(scan.id.clone(), sqlite_pool.clone()).await?,
+        results: results_arc,
         status: "Running".to_string(),
         current_tab: tui::Tab::Home,
-        logs: libs::sqlite::get_logs(scan.id.clone(), "debug".to_string(), sqlite_pool.clone())
-            .await?,
+        logs: logs_arc.clone(),
         log_level,
         args: args.clone(),
         output_written: false,
