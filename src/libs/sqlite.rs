@@ -1,4 +1,3 @@
-use crossterm::ExecutableCommand;
 use serde::Serialize;
 use crate::{libs};
 use sqlx::Error::Database;
@@ -8,11 +7,11 @@ use crate::models::scan::Scan;
 
 pub async fn init(db_path: String) -> Result<Pool<Sqlite>, sqlx::Error> {
     // create db if not exists
-    let db_exists = std::path::Path::new(db_path.as_str()).exists();
+    let db_exists = std::path::Path::new(format!("{db_path}/voyage.sqlite").as_str()).exists();
     if !db_exists {
-        fs::write(&db_path, b"").await?
+        fs::write(format!("{db_path}/voyage.sqlite"), b"").await?;
     }
-    let sqlite_pool = sqlx::SqlitePool::connect(format!("sqlite:{db_path}").as_str()).await?;
+    let sqlite_pool = sqlx::SqlitePool::connect(format!("sqlite:{db_path}/voyage.sqlite").as_str()).await?;
     // Enable WAL mode
     sqlite_pool.execute("PRAGMA journal_mode=WAL;").await?;
     // sync normal

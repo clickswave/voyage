@@ -4,23 +4,47 @@ mod models;
 mod task_handles;
 mod tui;
 
+use std::env;
 use std::process::exit;
 use std::sync::{Arc, Mutex, RwLock};
+use users::get_current_uid;
 use task_handles::domain_enumerator;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     // parse arguments
     let args = libs::args::parse();
-
-    // prepare params
-    let os = "unknown";
-    let organization = "clickswave";
-    let db_path = match os {
-        "linux" => format!("/var/lib/clickswave/{organization}.sqlite"),
-        "windows" => format!("C:/ProgramData/{organization}/{organization}.sqlite"),
-        _ => format!("{organization}.sqlite"),
+    // find os
+    let os = env::consts::OS;
+    // find current user
+    let user = match users::get_user_by_uid(get_current_uid()) {
+        Some(user) => user,
+        None => {
+            eprintln!("[ERROR] Error getting current user");
+            exit(1);
+        }
     };
+    let username = match user.name().to_str() {
+        Some(username) => username.to_string(),
+        None => {
+            eprintln!("[ERROR] Error getting current user name");
+            exit(1);
+        }
+    };
+    // determine db path
+    let db_path = match os {
+        "linux" => format!("/home/{}/.local/share/clickswave/voyage", username),
+        "windows" => format!(r"C:\Users\{}\AppData\Roaming\clickswave\voyage", username),
+        "macos" => format!("/Users/{}/Library/Application Support/clickswave/voyage", username),
+        _ => ".".to_string(),
+    };
+    // create db path if not exists
+    if !std::path::Path::new(db_path.as_str()).exists() {
+        std::fs::create_dir_all(db_path.clone()).unwrap_or_else(|_| {
+            eprintln!("[ERROR] Error creating db path");
+            exit(1);
+        });
+    }
     let wordlist_path = match args.wordlist_path.is_empty() {
         true => {
             eprintln!("[WARN] No wordlist specified");
@@ -28,19 +52,15 @@ async fn main() -> Result<(), anyhow::Error> {
         },
         false => args.wordlist_path.as_str(),
     };
-
     // initialize sqlite db
     let sqlite_pool = libs::sqlite::init(db_path).await?;
-
     // get wordlist hash
     let wordlist_hash = libs::wordlist::sha512(wordlist_path).await?;
-
     let config = models::scan::Config {
         domains: args.domain.clone(),
         agent: args.agent.clone(),
         wordlist_hash,
     };
-
     // convert config struct to json string
     let config_json = match serde_json::to_string(&config) {
         Ok(config_json) => config_json,
@@ -57,7 +77,6 @@ async fn main() -> Result<(), anyhow::Error> {
             exit(1);
         }
     };
-
     let cached_scan = sqlx::query_as::<_, models::scan::Scan>(
         "SELECT * FROM scans WHERE config_hash = ?",
     )
