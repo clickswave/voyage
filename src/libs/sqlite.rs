@@ -1,8 +1,10 @@
+use crossterm::ExecutableCommand;
 use serde::Serialize;
 use crate::{libs};
 use sqlx::Error::Database;
 use sqlx::{Executor, FromRow, Pool, Sqlite};
 use tokio::fs;
+use crate::models::scan::Scan;
 
 pub async fn init(db_path: String) -> Result<Pool<Sqlite>, sqlx::Error> {
     // create db if not exists
@@ -168,6 +170,25 @@ pub async fn get_logs(
         .await?;
 
     Ok(logs)
+}
+
+pub async fn fresh_start(
+    scan_id: String,
+    sqlite_pool: Pool<Sqlite>,
+) -> Result<Scan, anyhow::Error> {
+    // set row in scans table to 'scan_created'
+    sqlx::query(format!("UPDATE scans SET status = 'scan_created' WHERE id = '{scan_id}'").as_str()).execute(&sqlite_pool).await?;
+    // clear any existing logs
+    sqlx::query(format!("DELETE FROM logs WHERE scan_id = '{scan_id}'").as_str()).execute(&sqlite_pool).await?;
+    // drop workload table
+    sqlx::query(format!("DROP TABLE IF EXISTS {scan_id}").as_str()).execute(&sqlite_pool).await?;
+
+    // get scan
+    let scan = sqlx::query_as::<_, Scan>(
+        format!("SELECT * FROM scans WHERE id = '{scan_id}'").as_str(),
+    ).fetch_one(&sqlite_pool).await?;
+
+    Ok(scan)
 }
 
 pub async fn create_workload_table(

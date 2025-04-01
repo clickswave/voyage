@@ -164,8 +164,8 @@ impl Widget for &Tui {
         };
 
         let progress_text = format!(
-            "Progress: {}% | Found: {} | Total: {}",
-            progress_percentage, found_len, total
+            "Progress: {}% | Found: {} | Scanned: {} | Total: {}",
+            progress_percentage, found_len, found_len + not_found, total
         );
         let progress_area = Rect::new(1, 1, area.width - 2, 1);
 

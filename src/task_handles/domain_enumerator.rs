@@ -6,6 +6,7 @@ pub async fn handle(
     scan_id: String,
     sqlite_pool: sqlx::Pool<sqlx::Sqlite>,
     is_paused: Arc<AtomicBool>,
+    interval: u64,
 ) {
     let resolver = match libs::dns::create_resolver() {
         Ok(resolver) => resolver,
@@ -24,7 +25,7 @@ pub async fn handle(
 
     loop {
         // If paused, wait and retry
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(interval)).await;
         if is_paused.load(Ordering::Relaxed) {
             continue;
         }

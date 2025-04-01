@@ -37,8 +37,6 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let config = models::scan::Config {
         domains: args.domain.clone(),
-        interval: args.interval.clone(),
-        threads: args.tasks.clone(),
         agent: args.agent.clone(),
         wordlist_hash,
     };
@@ -102,7 +100,37 @@ async fn main() -> Result<(), anyhow::Error> {
                 }
             }
         }
-        Some(scan) => scan,
+        Some(scan) => {
+            if args.fresh_start {
+                // set row in scans table to 'scan_created'
+                let fresh_start = libs::sqlite::fresh_start(scan.id.clone(), sqlite_pool.clone()).await;
+                match fresh_start {
+                    Ok(fresh_scan) => {
+                        libs::sqlite::insert_log(
+                            scan.id.clone(),
+                            "info".to_string(),
+                            format!("Scan {} set to fresh start", scan.id),
+                            &sqlite_pool,
+                        )
+                        .await?;
+                        fresh_scan
+                    }
+                    Err(e) => {
+                        eprintln!("[ERROR] Error setting scan to fresh start: {}", e);
+                        exit(1);
+                    }
+                }
+            } else {
+                libs::sqlite::insert_log(
+                    scan.id.clone(),
+                    "info".to_string(),
+                    format!("Scan {} already exists", scan.id),
+                    &sqlite_pool,
+                )
+                .await?;
+                scan
+            }
+        },
     };
 
     // ---------------------------------------------
@@ -114,7 +142,7 @@ async fn main() -> Result<(), anyhow::Error> {
             libs::sqlite::create_workload_table(scan.id.clone(), sqlite_pool.clone()).await;
         if let Err(e) = create_workload_table {
             eprintln!("[ERROR] Error creating workload table: {}", e);
-            std::process::exit(1);
+            exit(1);
         }
         libs::sqlite::insert_log(
             scan.id.clone(),
@@ -131,7 +159,7 @@ async fn main() -> Result<(), anyhow::Error> {
             Ok(user) => user,
             Err(e) => {
                 eprintln!("[ERROR] Error parsing config: {}", e);
-                std::process::exit(1);
+                exit(1);
             }
         };
 
@@ -179,6 +207,7 @@ async fn main() -> Result<(), anyhow::Error> {
             scan.id.clone(),
             sqlite_pool.clone(),
             is_paused.clone(),
+            args.interval.clone()
         ));
         threads.push(thread);
         libs::sqlite::insert_log(
@@ -194,14 +223,13 @@ async fn main() -> Result<(), anyhow::Error> {
         format!("Enumeration tasks spawned: {}", args.tasks.clone()),
         &sqlite_pool,
     ).await?;
-    // push result mutator thread
-    let result_mutator = tokio::spawn(task_handles::result_mutator::handle(
+    // thread responsible for mutating tui data
+    threads.push(tokio::spawn(task_handles::result_mutator::handle(
         scan.id.clone(),
         sqlite_pool.clone(),
         results_arc.clone(),
         logs_arc.clone()
-    ));
-    threads.push(result_mutator);
+    )));
 
     // setup tui
     let mut terminal = ratatui::init();

@@ -67,9 +67,9 @@ pub struct Args {
     #[arg(short, long, default_value_t = format!(""))]
     pub wordlist_path: String,
 
-    /// Specify the interval in ms between each request. Defaults to 0
+    /// Specify the interval in ms between each request for a task. Defaults to 0
     #[arg(short, long, default_value_t = 0)]
-    pub interval: i64,
+    pub interval: u64,
 
     /// Specify the number of tasks to use. Defaults to 2
     #[arg(short, long, default_value_t = 2)]
