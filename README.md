@@ -3,6 +3,7 @@
 **Stateful subdomain enumeration TUI toolkit**
 
 ![Voyage SS](https://github.com/clickswave/voyage/blob/main/voyage-ss1.png?raw=true)
+![Voyage SS](https://github.com/clickswave/voyage/blob/main/voyage-ss2.png?raw=true)
 
 ## Installation
 
