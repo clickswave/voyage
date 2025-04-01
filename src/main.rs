@@ -48,7 +48,7 @@ async fn main() -> Result<(), anyhow::Error> {
         Ok(config_json) => config_json,
         Err(e) => {
             eprintln!("[ERROR] Error serializing config: {}", e);
-            std::process::exit(1);
+            exit(1);
         }
     };
     // generate config hash
@@ -56,48 +56,35 @@ async fn main() -> Result<(), anyhow::Error> {
         Ok(config_hash) => config_hash,
         Err(e) => {
             eprintln!("[ERROR] Error hashing config: {}", e);
-            std::process::exit(1);
+            exit(1);
         }
     };
 
-    let cached_scan = sqlx::query_as!(
-        models::scan::Scan,
-        "
-        SELECT * FROM scans WHERE config_hash = $1
-        ",
-        config_hash,
+    let cached_scan = sqlx::query_as::<_, models::scan::Scan>(
+        "SELECT * FROM scans WHERE config_hash = ?",
     )
-    .fetch_optional(&sqlite_pool)
-    .await?;
+        .bind(config_hash.clone())
+        .fetch_optional(&sqlite_pool)
+        .await?;
 
     // check if scan is cached, if not create a new scan, return progress position
     let mut scan = match cached_scan {
         None => {
             let scan_id = libs::rng::scan_id();
-            let create_scan = sqlx::query_as!(
-                models::scan::Scan,
-                "
-                INSERT INTO scans
-                    (
-                     id,
-                     config_hash,
-                     config,
-                     status,
-                     no_banner,
-                     launch_delay
-                    )
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING *
-                ",
-                scan_id,
-                config_hash,
-                config_json,
-                "scan_created",
-                false,
-                0,
+            let create_scan = sqlx::query_as::<_, models::scan::Scan>(
+                "INSERT INTO scans
+        (id, config_hash, config, status, no_banner, launch_delay)
+    VALUES (?, ?, ?, ?, ?, ?)
+    RETURNING *"
             )
-            .fetch_one(&sqlite_pool)
-            .await;
+                .bind(scan_id.clone())
+                .bind(config_hash.clone())
+                .bind(config_json.clone())
+                .bind("scan_created")
+                .bind(false)
+                .bind(0)
+                .fetch_one(&sqlite_pool)
+                .await;
             match create_scan {
                 Ok(scan) => {
                     libs::sqlite::insert_log(
@@ -111,7 +98,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 }
                 Err(e) => {
                     eprintln!("[ERROR] Error creating scan: {}", e);
-                    std::process::exit(1);
+                    exit(1);
                 }
             }
         }
@@ -197,7 +184,7 @@ async fn main() -> Result<(), anyhow::Error> {
         libs::sqlite::insert_log(
             scan.id.clone(),
             "debug".to_string(),
-            format!("Task {index} spawned"),
+            format!("Task {} spawned", index+1),
             &sqlite_pool,
         ).await?;
     }

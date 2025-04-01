@@ -16,25 +16,29 @@ pub async fn init(db_path: String) -> Result<Pool<Sqlite>, sqlx::Error> {
     // sync normal
     sqlite_pool.execute("PRAGMA synchronous=NORMAL;").await?;
     // create table scans if not exists
-    sqlx::query!(
+
+    // create table scans if not exists
+    sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS scans (
-            id TEXT NOT NULL PRIMARY KEY,                       -- ID to uniquely identify a scan
-            config_hash TEXT NOT NULL,                          -- SHA512 derived from the config
-            config TEXT NOT NULL,                               -- Scan configs as JSON which can impact scan_hash
-            status TEXT NOT NULL DEFAULT 'pending',             -- Status of the scan
-            no_banner BOOLEAN NOT NULL,                         -- Disable banner display on startup
-            launch_delay INTEGER NOT NULL,                      -- Delay in seconds before starting the scan
-            created_at TIMESTAMP NOT NULL DEFAULT (CURRENT_TIMESTAMP),     -- Timestamp when the scan was created
-            updated_at TIMESTAMP NOT NULL DEFAULT (CURRENT_TIMESTAMP),     -- Timestamp when the scan was last updated
-            notifications TEXT NOT NULL DEFAULT '{}'                       -- JSON array of alerts
+            id TEXT NOT NULL PRIMARY KEY,
+            config_hash TEXT NOT NULL,
+            config TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            no_banner BOOLEAN NOT NULL,
+            launch_delay INTEGER NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+            updated_at TIMESTAMP NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+            notifications TEXT NOT NULL DEFAULT '{}'
         )
         "#
     ).execute(&sqlite_pool).await?;
-    sqlx::query!(
+
+    // create table logs if not exists
+    sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS logs (
-            id SERIAL PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             scan_id TEXT NOT NULL,
             level TEXT NOT NULL DEFAULT 'debug',
             description TEXT NOT NULL,
@@ -42,6 +46,7 @@ pub async fn init(db_path: String) -> Result<Pool<Sqlite>, sqlx::Error> {
         )
         "#
     ).execute(&sqlite_pool).await?;
+
     Ok(sqlite_pool)
 }
 
@@ -239,14 +244,12 @@ pub async fn populate_basic_workload(
     }
 
     // Change scan status to 'basic_workload_populated'
-    let change_status = sqlx::query!(
-        "
-        UPDATE scans
-        SET status = 'basic_workload_populated'
-        WHERE id = $1
-        ",
-        scan_id
+    let change_status = sqlx::query(
+        "UPDATE scans
+     SET status = 'basic_workload_populated'
+     WHERE id = ?"
     )
+        .bind(scan_id)
         .execute(&sqlite_pool)
         .await;
 

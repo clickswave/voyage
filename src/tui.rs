@@ -42,7 +42,7 @@ impl Tui {
     pub async fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
         while !self.halt {
             self.status = if self.results.read().unwrap().found.len() as i32 + self.results.read().unwrap().not_found >= self.results.read().unwrap().total  {
-                if self.output_written == false {
+                if !self.args.output_path.is_empty() && self.output_written == false {
                     let write_output = crate::export_results::export(
                         self.scan_id.clone(),
                         self.sqlite_pool.clone(),
@@ -52,6 +52,12 @@ impl Tui {
 
                     match write_output {
                         Ok(_) => {
+                            let _ = libs::sqlite::insert_log(
+                                self.scan_id.clone(),
+                                "info".to_string(),
+                                format!("Output written to {}", self.args.output_path),
+                                &self.sqlite_pool,
+                            ).await;
                             self.output_written = true;
                         }
                         Err(e) => {
@@ -61,6 +67,7 @@ impl Tui {
                                 format!("Error writing output: {}", e),
                                 &self.sqlite_pool,
                             ).await;
+                            self.output_written = true;
                         }
                     }
                 }

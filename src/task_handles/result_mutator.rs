@@ -9,8 +9,11 @@ pub async fn handle(
     logs_arc: Arc<RwLock<Vec<Log>>>,
 ) {
     loop {
-        // If paused, wait and retry
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+        let completed = results_arc.read().unwrap().found.len() as i32 + results_arc.read().unwrap().not_found >= results_arc.read().unwrap().total;
+
+        if completed { continue; }
 
         let get_progress = libs::sqlite::get_results(
             scan_id.clone(), sqlite_pool.clone(),
@@ -40,6 +43,7 @@ pub async fn handle(
         match get_logs {
             Ok(logs) => {
                 let mut logs_writer = logs_arc.write().unwrap();
+                logs_writer.clear();
                 logs_writer.extend(logs);
             }
             Err(e) => {
@@ -51,5 +55,7 @@ pub async fn handle(
                 ).await;
             }
         }
+
+
     }
 }
