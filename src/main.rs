@@ -7,7 +7,6 @@ mod tui;
 use std::env;
 use std::process::exit;
 use std::sync::{Arc, Mutex, RwLock};
-use users::get_current_uid;
 use task_handles::domain_enumerator;
 
 #[tokio::main]
@@ -16,21 +15,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let args = libs::args::parse();
     // find os
     let os = env::consts::OS;
-    // find current user
-    let user = match users::get_user_by_uid(get_current_uid()) {
-        Some(user) => user,
-        None => {
-            eprintln!("[ERROR] Error getting current user");
-            exit(1);
-        }
-    };
-    let username = match user.name().to_str() {
-        Some(username) => username.to_string(),
-        None => {
-            eprintln!("[ERROR] Error getting current user name");
-            exit(1);
-        }
-    };
+    let username = whoami::username();
     // determine db path
     let db_path = match os {
         "linux" => format!("/home/{}/.local/share/clickswave/voyage", username),
