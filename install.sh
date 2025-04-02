@@ -22,7 +22,17 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 # Ensure INSTALL_DIR is an absolute path
-INSTALL_DIR="$(realpath -m "$INSTALL_DIR")"
+if command -v realpath &>/dev/null; then
+    INSTALL_DIR="$(realpath "$INSTALL_DIR")"
+elif command -v grealpath &>/dev/null; then
+    INSTALL_DIR="$(grealpath -m "$INSTALL_DIR")"
+elif command -v python3 &>/dev/null; then
+    INSTALL_DIR="$(python3 -c "import os; print(os.path.abspath('$INSTALL_DIR'))")"
+else
+    echo "Error: realpath, grealpath, or Python 3 is required to resolve paths."
+    exit 1
+fi
+
 VOYAGE_DIR="$INSTALL_DIR/voyage"
 BIN_DIR="$INSTALL_DIR/bin"
 
@@ -47,7 +57,7 @@ dep_check
 
 # Create installation directories
 sudo mkdir -p "$VOYAGE_DIR" "$BIN_DIR"
-sudo chown "$USER:$USER" "$INSTALL_DIR" -R
+sudo chown -R "$USER:$(id -gn)" "$INSTALL_DIR"
 
 # Create build directory in /tmp
 rm -rf "$BUILD_DIR"
