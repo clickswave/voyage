@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 Documentation
+    url: https://docs.voyage.vg
+    about: Please check the documentation before opening an issue.
+  - name: 💬 Discussions
+    url: https://discord.com/invite/QMuyWSY5sa
+    about: Ask questions or start discussions about Voyage here.

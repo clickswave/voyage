@@ -1,4 +1,5 @@
-# PowerShell installation script for voyage on Windows
+# installation script for voyage on Windows
+$host.UI.RawUI.WindowTitle = "Voyage Installer"
 
 # Check if running as administrator
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)

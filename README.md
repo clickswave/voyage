@@ -7,6 +7,27 @@
 
 ## Installation
 
+### Linux and MacOS
+**If you are feeling brave**
+```bash
+curl https://raw.githubusercontent.com/clickswave/voyage/refs/heads/main/install.sh | bash
+```
+**Recommended method**
+```bash
+curl https://raw.githubusercontent.com/clickswave/voyage/refs/heads/main/install.sh -o voyage-install.sh
+# read the script to see what it does
+bash voyage-install.sh
+```
+
+### Windows
+**Recommended method**
+```powershell
+# inside powershell terminal
+git clone https://github.com/clickswave/voyage
+cd voyage
+.\install.ps1
+```
+
 ### From Source
 
 ```
@@ -28,31 +49,31 @@ voyage [OPTIONS] --domain <DOMAIN>
 ### Example Commands
 
 #### Basic enumeration:
-
 ```
-voyage -d example.com
-```
-
-#### Using a custom wordlist:
-
-```
-voyage -d example.com -w wordlist.txt
+voyage -d example.com -w ./path/to/wordlist.txt
 ```
 
-#### Adjusting concurrency and request interval:
-
+#### Chain multiple domains:
 ```
-voyage -d example.com -t 10 -i 500
+voyage -d example.com -d example2.com -w ./path/to/wordlist.txt
+```
+
+#### Adjusting concurrency and request interval in milliseconds:
+```
+voyage -d example.com -w ./path/to/wordlist.txt -t 10 -i 500 
 ```
 
 #### Saving output to a file:
-
 ```
-voyage -d example.com -o results.txt
+voyage -d example.com -w ./path/to/wordlist.txt -o results.txt
+```
+
+#### Launch a fresh scan (deletes cache for current scan):
+```
+voyage -d example.com -w ./path/to/wordlist.txt --fresh-start
 ```
 
 #### Full list of options:
-
 ```
 voyage --help
 ```
