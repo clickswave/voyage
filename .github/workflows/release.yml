@@ -36,7 +36,7 @@ jobs:
             archive_extension: tar.gz
             archive_command: tar czf
           - os: windows-latest
-            target: x86_64-pc-windows-msvc
+            target: x86_64-pc-windows-gnu
             archive_name_suffix: windows-x86_64
             archive_extension: zip
 
