@@ -1,0 +1,146 @@
+# .github/workflows/release.yml
+
+name: Build and Release Voyage
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*.*.*'
+  pull_request:
+    branches: [ main ]
+
+env:
+  BINARY_NAME: "voyage"
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }} for ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false # Don't cancel other jobs if one fails
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive_name_suffix: linux-x86_64
+            archive_extension: tar.gz
+            archive_command: tar czf
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            archive_name_suffix: macos-x86_64
+            archive_extension: tar.gz
+            archive_command: tar czf
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive_name_suffix: windows-x86_64
+            archive_extension: zip
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (${{ matrix.target }})
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }} # Install specific target toolchain if needed
+
+      # Cache dependencies using Swatinem/rust-cache for faster builds
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          # Optional: Add key prefixes if you have multiple distinct Cargo workspaces/projects
+          # prefix-key: "${{ matrix.os }}-${{ matrix.target }}"
+          save-if: ${{ github.ref == 'refs/heads/main' }} # Only save cache on main branch pushes
+
+      # Build the project in release mode for the specified target
+      - name: Build binary
+        run: cargo build --verbose --release --target ${{ matrix.target }}
+
+      # --- Prepare Release Artifact ---
+      - name: Determine Binary Path and Artifact Names
+        id: artifact_details
+        shell: bash
+        run: |
+          BINARY_PATH_BASE="target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}"
+          ARTIFACT_NAME_BASE="${{ env.BINARY_NAME }}-${{ github.ref_name }}-${{ matrix.archive_name_suffix }}"
+
+          if [ "${{ runner.os }}" == "Windows" ]; then
+            echo "BINARY_PATH=${BINARY_PATH_BASE}.exe" >> $GITHUB_OUTPUT
+            echo "ARCHIVE_NAME=${ARTIFACT_NAME_BASE}.${{ matrix.archive_extension }}" >> $GITHUB_OUTPUT
+          else
+            echo "BINARY_PATH=${BINARY_PATH_BASE}" >> $GITHUB_OUTPUT
+            echo "ARCHIVE_NAME=${ARTIFACT_NAME_BASE}.${{ matrix.archive_extension }}" >> $GITHUB_OUTPUT
+          fi
+          # Also output path for easier reuse
+          echo "BINARY_DIR=target/${{ matrix.target }}/release" >> $GITHUB_OUTPUT
+
+
+      - name: Package Release Artifact (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          cd "${{ steps.artifact_details.outputs.BINARY_DIR }}"
+          ${{ matrix.archive_command }} "../../../${{ steps.artifact_details.outputs.ARCHIVE_NAME }}" "${{ env.BINARY_NAME }}"
+          cd ../../..
+        shell: bash
+
+
+      - name: Package Release Artifact (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          Compress-Archive -Path "${{ steps.artifact_details.outputs.BINARY_PATH }}" -DestinationPath "${{ steps.artifact_details.outputs.ARCHIVE_NAME }}"
+          # Optional: Include other files like README, LICENSE in the archive
+          # Copy-Item -Path "LICENSE", "README.md" -Destination "${{ steps.artifact_details.outputs.BINARY_DIR }}"
+          # Compress-Archive -Path "${{ steps.artifact_details.outputs.BINARY_PATH }}", "${{ steps.artifact_details.outputs.BINARY_DIR }}\LICENSE", "${{ steps.artifact_details.outputs.BINARY_DIR }}\README.md" -DestinationPath "${{ steps.artifact_details.outputs.ARCHIVE_NAME }}" -Force
+        shell: powershell
+
+      - name: Upload artifact for release job
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact_details.outputs.ARCHIVE_NAME }}
+          path: ${{ steps.artifact_details.outputs.ARCHIVE_NAME }}
+          retention-days: 5
+
+  release:
+    name: Create GitHub Release
+    if: github.ref_type == 'tag' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code (needed for potential release notes generation)
+        uses: actions/checkout@v4
+
+      - name: Generate Release Notes Body
+        id: generate_notes
+        run: |
+          echo "Release Notes for ${{ github.ref_name }}" > release_notes.md
+          echo "" >> release_notes.md
+          echo "### Changes:" >> release_notes.md
+          git log --pretty=format:"* %s (%h)" $(git describe --tags --abbrev=0 HEAD^)..HEAD >> release_notes.md
+          # Make body available to next step
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          cat release_notes.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: List downloaded artifacts (for debugging)
+        run: ls -R release-artifacts
+
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          body: ${{ steps.generate_notes.outputs.body }}
+          files: release-artifacts/${{ env.BINARY_NAME }}*/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
