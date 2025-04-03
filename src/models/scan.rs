@@ -5,7 +5,6 @@ use sqlx::FromRow;
 #[derive(Serialize, Deserialize, Debug, Clone, FromRow)]
 pub struct Config {
     pub domains: Vec<String>,
-    pub agent: String,
     pub wordlist_hash: String,
 }
 

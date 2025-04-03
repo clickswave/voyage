@@ -10,7 +10,7 @@ pub async fn csv (
 ) -> Result<(), anyhow::Error>{
     let get_results = get_results(
         scan_id.clone(),
-        sqlite_pool.clone()
+        sqlite_pool.clone(),
     ).await?;
 
     let mut wtr = csv::Writer::from_path(file_path)?;
@@ -29,7 +29,7 @@ pub async fn text(
 ) -> Result<(), anyhow::Error>{
     let get_results = get_results(
         scan_id.clone(),
-        sqlite_pool.clone()
+        sqlite_pool.clone(),
     ).await?;
 
     let mut file = File::create(file_path).await?;

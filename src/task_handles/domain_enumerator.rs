@@ -1,3 +1,4 @@
+use crate::libs::args::Args;
 use crate::{libs, models};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -6,7 +7,7 @@ pub async fn handle(
     scan_id: String,
     sqlite_pool: sqlx::Pool<sqlx::Sqlite>,
     is_paused: Arc<AtomicBool>,
-    interval: u64,
+    args: Args,
 ) {
     let resolver = match libs::dns::create_resolver() {
         Ok(resolver) => resolver,
@@ -16,16 +17,35 @@ pub async fn handle(
                 "error".to_string(),
                 format!("Error creating DNS resolver: {}", e),
                 &sqlite_pool,
+                args.log_level.to_string(),
             )
             .await;
             return;
         }
     };
-    let client = reqwest::Client::new();
+
+    let user_agent = match args.active_random_user_agent {
+        true => libs::rng::user_agent(),
+        false => args.active_user_agent.clone(),
+    };
+    let client = match reqwest::Client::builder().user_agent(user_agent).build() {
+        Ok(client) => client,
+        Err(e) => {
+            let _ = libs::sqlite::insert_log(
+                scan_id.clone(),
+                "error".to_string(),
+                format!("Error creating HTTP client, terminating task: {e}"),
+                &sqlite_pool,
+                args.log_level.to_string(),
+            )
+            .await;
+            return;
+        }
+    };
 
     loop {
         // If paused, wait and retry
-        tokio::time::sleep(std::time::Duration::from_millis(interval)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(args.interval)).await;
         if is_paused.load(Ordering::Relaxed) {
             continue;
         }
@@ -62,6 +82,7 @@ pub async fn handle(
                             "error".to_string(),
                             format!("Error fetching scanning domains: {}", e),
                             &sqlite_pool,
+                            args.log_level.to_string(),
                         )
                         .await;
                         continue;
@@ -76,28 +97,42 @@ pub async fn handle(
             }
 
             let test_domain = format!("{}.{}", result.subdomain, result.domain);
-            let check_domain_exists = libs::domain_exists(&resolver, &client, &test_domain).await;
+            let scan_result =
+                crate::scanners::active_scan::execute(&resolver, &client, &test_domain).await;
 
-            let domain_exists = match check_domain_exists {
-                Ok(exists) => exists,
-                Err(e) => {
+            for negative_result in scan_result.negatives {
+                let _ = libs::sqlite::insert_log(
+                    scan_id.clone(),
+                    negative_result.level,
+                    negative_result.description,
+                    &sqlite_pool,
+                    args.log_level.to_string(),
+                )
+                .await;
+            }
+
+            let status = match scan_result.found {
+                true => {
                     let _ = libs::sqlite::insert_log(
                         scan_id.clone(),
-                        "error".to_string(),
-                        format!("Error checking domain existence: {}", e.join(", ")),
+                        "info".to_string(),
+                        format!("Found: {}", test_domain),
                         &sqlite_pool,
+                        args.log_level.to_string(),
                     )
                     .await;
-                    false
+                    "found"
+                }
+                false => {
+                    "not found"
                 }
             };
 
-            let status = if domain_exists { "found" } else { "not found" };
-
             let update_query = format!(
-                "UPDATE {scan_id} SET status = '{status}', last_scanned_on = CURRENT_TIMESTAMP WHERE id = {result_id};",
+                "UPDATE {scan_id} SET status = '{status}', last_scanned_on = CURRENT_TIMESTAMP, source = '{source}' WHERE id = {result_id};",
                 scan_id = scan_id,
                 status = status,
+                source = scan_result.source,
                 result_id = result.id
             );
 
@@ -107,6 +142,7 @@ pub async fn handle(
                     "error".to_string(),
                     format!("Error updating domain status: {}", e),
                     &sqlite_pool,
+                    args.log_level.to_string(),
                 )
                 .await;
             }

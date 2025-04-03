@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use serde::Serialize;
 use crate::{libs};
 use sqlx::Error::Database;
@@ -75,6 +76,8 @@ pub async fn reset_halted_scans(
 pub struct ScanResult {
     pub domain: String,
     pub subdomain: String,
+    pub method: String,
+    pub source: String,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -89,13 +92,17 @@ pub async fn get_results(
     sqlite_pool: Pool<Sqlite>,
 ) -> std::result::Result<ScanResults, anyhow::Error> {
 
+    // method filter could be "passive", "active", "none"
     let found_results = sqlx::query_as::<_, ScanResult>(
         format!(
-            "SELECT subdomain,domain FROM {scan_id} WHERE status = 'found'",
+            "SELECT subdomain,domain,method,source FROM {scan_id} WHERE status = 'found'",
             scan_id = scan_id
         )
-        .as_str(),
-    ).bind(&scan_id).fetch_all(&sqlite_pool).await?;
+            .as_str(),
+    )
+        .bind(&scan_id)
+        .fetch_all(&sqlite_pool)
+        .await?;
 
     let not_found_count: (i32,) = sqlx::query_as(
         format!(
@@ -135,7 +142,17 @@ pub async fn insert_log(
     level: String,
     description: String,
     sqlite_pool: &Pool<Sqlite>,
+    min_log_level: String,
 ) -> Result<(), anyhow::Error> {
+
+    // Check if the log level is greater than or equal to the minimum log level
+    let log_levels = vec!["debug", "info", "warn", "error"];
+    let min_log_level_index = log_levels.iter().position(|&x| x == min_log_level).unwrap_or(0);
+    let current_log_level_index = log_levels.iter().position(|&x| x == level).unwrap_or(0);
+    if current_log_level_index < min_log_level_index {
+        return Ok(());
+    }
+
     sqlx::query(
         format!(
             "INSERT INTO logs (scan_id, level, description) VALUES ('{scan_id}', '{level}', '{description}')",
@@ -204,7 +221,9 @@ pub async fn create_workload_table(
                 created_on TIMESTAMP NOT NULL DEFAULT (CURRENT_TIMESTAMP),
                 last_scanned_on TIMESTAMP DEFAULT NULL,
                 last_scan_started_on TIMESTAMP DEFAULT NULL,
-                max_retries INTEGER NOT NULL DEFAULT 0
+                max_retries INTEGER NOT NULL DEFAULT 0,
+                method TEXT NOT NULL,
+                source TEXT NOT NULL
             )",
         )
         .as_str(),
@@ -242,13 +261,13 @@ pub async fn populate_basic_workload(
     let mut chunk_iter = read_wordlist.chunks(SQLITE_MAX_VARIABLES / 2); // (2 bindings per row)
 
     while let Some(chunk) = chunk_iter.next() {
-        let mut query = format!("INSERT INTO \"{}\" (domain, subdomain) VALUES ", scan_id);
-        let placeholders: Vec<String> = chunk.iter().map(|_| "(?, ?)".to_string()).collect();
+        let mut query = format!("INSERT INTO \"{}\" (domain, subdomain, method, source) VALUES ", scan_id);
+        let placeholders: Vec<String> = chunk.iter().map(|_| "(?, ?, ?, ?)".to_string()).collect();
         query.push_str(&placeholders.join(", "));
 
         let mut sql_query = sqlx::query(&query);
         for subdomain in chunk {
-            sql_query = sql_query.bind(domain.as_str()).bind(subdomain);
+            sql_query = sql_query.bind(domain.as_str()).bind(subdomain).bind("active").bind("");
         }
 
         // Execute the query
@@ -276,6 +295,45 @@ pub async fn populate_basic_workload(
     match change_status {
         Ok(_) => Ok(()),
         Err(e) => Err(e.to_string()),
+    }
+}
+
+
+pub async fn populate_passive_scan_results(
+    scan_id: String,
+    sqlite_pool: Pool<Sqlite>,
+    results: HashMap<String, String>,
+    domain: String,
+) -> Result<(), anyhow::Error> {
+
+    for (result, source) in results.iter() {
+        let query = format!(
+            "INSERT INTO {scan_id} (domain, subdomain, method, source, status) VALUES (?, ?, ?, ?, ?)",
+            scan_id = scan_id
+        );
+        sqlx::query(&query)
+            .bind(&domain)
+            .bind(result)
+            .bind("passive")
+            .bind(source)
+            .bind("found")
+            .execute(&sqlite_pool)
+            .await?;
+    }
+
+    // Change scan status to 'basic_workload_populated'
+    let change_status = sqlx::query(
+        "UPDATE scans
+     SET status = 'passive_results_populated'
+     WHERE id = ?"
+    )
+        .bind(scan_id)
+        .execute(&sqlite_pool)
+        .await;
+
+    match change_status {
+        Ok(_) => Ok(()),
+        Err(e) => Err(anyhow::Error::from(e)),
     }
 }
 

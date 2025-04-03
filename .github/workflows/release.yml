@@ -4,11 +4,11 @@ name: Build and Release Voyage
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, dev ]
     tags:
       - 'v*.*.*'
   pull_request:
-    branches: [ main ]
+    branches: [ main, dev ]
 
 env:
   BINARY_NAME: "voyage"

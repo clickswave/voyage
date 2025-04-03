@@ -1,5 +1,6 @@
 use crate::{libs};
 use std::sync::{Arc, RwLock};
+use crate::libs::args::Args;
 use crate::libs::sqlite::{Log, ScanResults};
 
 pub async fn handle(
@@ -7,6 +8,7 @@ pub async fn handle(
     sqlite_pool: sqlx::Pool<sqlx::Sqlite>,
     results_arc: Arc<RwLock<ScanResults>>,
     logs_arc: Arc<RwLock<Vec<Log>>>,
+    args: Args,
 ) {
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -16,7 +18,7 @@ pub async fn handle(
         if completed { continue; }
 
         let get_progress = libs::sqlite::get_results(
-            scan_id.clone(), sqlite_pool.clone(),
+            scan_id.clone(), sqlite_pool.clone()
         ).await;
 
         match get_progress {
@@ -32,12 +34,15 @@ pub async fn handle(
                     "error".to_string(),
                     format!("Error getting progress: {}", e),
                     &sqlite_pool,
+                    args.log_level.to_string(),
                 ).await;
             }
         }
 
         let get_logs = libs::sqlite::get_logs(
-            scan_id.clone(), "debug".to_string(), sqlite_pool.clone(),
+            scan_id.clone(),
+            "debug".to_string(),
+            sqlite_pool.clone(),
         ).await;
 
         match get_logs {
@@ -52,6 +57,7 @@ pub async fn handle(
                     "error".to_string(),
                     format!("Error getting logs: {}", e),
                     &sqlite_pool,
+                    args.log_level.to_string(),
                 ).await;
             }
         }

@@ -11,7 +11,8 @@ use ratatui::widgets::{Block, BorderType, Cell, Gauge, HighlightSpacing, Row, Ta
 use ratatui::DefaultTerminal;
 use sqlx::SqlitePool;
 use std::io;
-use std::sync::{Arc, Mutex, RwLock};
+use std::process::exit;
+use std::sync::{Arc, RwLock};
 use tokio::time::Duration;
 use crate::libs;
 
@@ -30,8 +31,9 @@ pub struct Tui {
     pub sqlite_pool: SqlitePool,
     pub scan_id: String,
     pub results: Arc<RwLock<ScanResults>>,
+    pub method_filter: String, // none, active, passive
     pub logs: Arc<RwLock<Vec<Log>>>,
-    pub log_level: Arc<Mutex<String>>,
+    pub log_level: String, // debug info warn error
     pub status: String,
     pub current_tab: Tab,
     pub args: Args,
@@ -57,6 +59,7 @@ impl Tui {
                                 "info".to_string(),
                                 format!("Output written to {}", self.args.output_path),
                                 &self.sqlite_pool,
+                                self.args.log_level.to_string(),
                             ).await;
                             self.output_written = true;
                         }
@@ -66,6 +69,7 @@ impl Tui {
                                 "error".to_string(),
                                 format!("Error writing output: {}", e),
                                 &self.sqlite_pool,
+                                self.args.log_level.to_string(),
                             ).await;
                             self.output_written = true;
                         }
@@ -83,7 +87,11 @@ impl Tui {
             self.handle_events().await?;
         }
         ratatui::restore();
-        Ok(())
+        // display banner unless disabled
+        if !self.args.no_banner {
+            libs::banner::full();
+        }
+        exit(0);
     }
 
     async fn handle_events(&mut self) -> io::Result<()> {
@@ -108,22 +116,45 @@ impl Tui {
                     KeyCode::Down => self.scroll_offset += 1,
                     // left and right should change log level debug, info, warn, error
                     KeyCode::Left => {
-                        let mut log_level = self.log_level.lock().unwrap();
-                        *log_level = match log_level.as_str() {
-                            "debug" => "info".to_string(),
-                            "info" => "warn".to_string(),
-                            "warn" => "error".to_string(),
-                            _ => "debug".to_string(),
-                        };
+                        match self.current_tab {
+                            Tab::Home => {
+                                self.method_filter = match self.method_filter.as_str() {
+                                    "none" => "active".to_string(),
+                                    "active" => "passive".to_string(),
+                                    "passive" => "none".to_string(),
+                                    _ => "none".to_string(),
+                                };
+                            }
+                            Tab::Logs => {
+                                self.log_level = match self.log_level.as_str() {
+                                    "debug" => "info".to_string(),
+                                    "info" => "warn".to_string(),
+                                    "warn" => "error".to_string(),
+                                    _ => "debug".to_string(),
+                                };
+                            }
+                        }
+
                     }
                     KeyCode::Right => {
-                        let mut log_level = self.log_level.lock().unwrap();
-                        *log_level = match log_level.as_str() {
-                            "debug" => "error".to_string(),
-                            "info" => "debug".to_string(),
-                            "warn" => "info".to_string(),
-                            _ => "warn".to_string(),
-                        };
+                        match self.current_tab {
+                            Tab::Home => {
+                                self.method_filter = match self.method_filter.as_str() {
+                                    "none" => "passive".to_string(),
+                                    "active" => "none".to_string(),
+                                    "passive" => "active".to_string(),
+                                    _ => "none".to_string(),
+                                };
+                            }
+                            Tab::Logs => {
+                                self.log_level = match self.log_level.as_str() {
+                                    "debug" => "warn".to_string(),
+                                    "info" => "debug".to_string(),
+                                    "warn" => "error".to_string(),
+                                    _ => "info".to_string(),
+                                };
+                            }
+                        }
                     }
                     _ => {}
                 }
@@ -191,20 +222,35 @@ impl Tui {
         let mut displayed_list = vec![];
         for (index, result) in found_items.found.iter().enumerate() {
             if index >= self.scroll_offset && index < self.scroll_offset + visible_items as usize {
-                let status_style = Style::default().fg(Color::Green);
-                let row = Row::new(vec![
-                    format!("{}", index + 1),
-                    format!("{}.{}", result.subdomain, result.domain.clone()),
-                    "Found".to_string(),
-                ])
-                .style(status_style);
-                displayed_list.push(row);
+                if self.method_filter == "none" {
+                    let status_style = Style::default().fg(Color::Green);
+                    let row = Row::new(vec![
+                        format!("{}", index + 1),
+                        format!("{}.{}", result.subdomain, result.domain.clone()),
+                        "Found".to_string(),
+                        result.method.clone(),
+                        result.source.clone(),
+                    ])
+                    .style(status_style);
+                    displayed_list.push(row);
+                } else if self.method_filter == result.method {
+                    let status_style = Style::default().fg(Color::Green);
+                    let row = Row::new(vec![
+                        format!("{}", index + 1),
+                        format!("{}.{}", result.subdomain, result.domain.clone()),
+                        "Found".to_string(),
+                        result.method.clone(),
+                        result.source.clone(),
+                    ])
+                    .style(status_style);
+                    displayed_list.push(row);
+                }
             }
         }
 
         let header_style = Style::default().fg(Color::Indexed(1));
 
-        let header = ["No.", "Domain", "Status"]
+        let header = ["No.", "Domain", "Status", "Method", "Source"]
             .into_iter()
             .map(Cell::from)
             .collect::<Row>()
@@ -216,10 +262,12 @@ impl Tui {
             "-".repeat(area.width as usize), // Adjust width for "No."
             "-".repeat(area.width as usize), // Adjust width for "Domain"
             "-".repeat(area.width as usize), // Adjust width for "Status"
+            "-".repeat(area.width as usize), // Adjust width for "Method"
+            "-".repeat(area.width as usize), // Adjust width for "Source"
         ])
         .style(Style::default().fg(Color::White));
 
-        let instructions = Line::from(" <Up/Down> Navigate".bold());
+        let instructions = Line::from(" <Up/Down> Navigate | <Left/Right> Cycle Filter ".bold());
         let table = Table::new(
             // Insert separator row after header
             std::iter::once(header.clone())
@@ -229,11 +277,13 @@ impl Tui {
                 Constraint::Percentage(10),
                 Constraint::Fill(1),
                 Constraint::Percentage(20),
+                Constraint::Length(12),
+                Constraint::Length(12),
             ],
         )
         .block(
             Block::default()
-                .title(" Results ")
+                .title(format!(" Filter Results: {} ", self.method_filter).bold())
                 .title_bottom(instructions.left_aligned())
                 .borders(ratatui::widgets::Borders::all())
                 .border_type(BorderType::Rounded),
@@ -242,6 +292,8 @@ impl Tui {
             Constraint::Percentage(10),
             Constraint::Percentage(60),
             Constraint::Percentage(30),
+            Constraint::Length(12),
+            Constraint::Length(12),
         ])
         .highlight_spacing(HighlightSpacing::Always);
 
@@ -253,19 +305,48 @@ impl Tui {
         let visible_items = area.height as usize - 4;
         let mut displayed_list = vec![];
 
+        let log_levels = vec!["debug", "info", "warn", "error"];
+
         for (index, log) in self.logs.read().unwrap().iter().enumerate() {
+            // Filter logs based on the log level filter
             if index < self.scroll_offset || index >= self.scroll_offset + visible_items {
+                continue;
+            }
+
+            let min_log_level_index = log_levels
+                .iter()
+                .position(|&level| level == self.log_level)
+                .unwrap_or(0);
+
+            let log_level_index = log_levels
+                .iter()
+                .position(|&level| level == log.level)
+                .unwrap_or(0);
+
+            if log_level_index < min_log_level_index {
                 continue;
             }
 
             let max_desc_width = (area.width as usize * 3) / 5;
             let wrapped_description = textwrap::wrap(&log.description, max_desc_width);
 
+            let log_level_color = match log_level_index {
+                0 => Color::Green,
+                1 => Color::Yellow,
+                2 => Color::Red,
+                _ => Color::White,
+            };
+            let log_level_style = Style::default().fg(log_level_color);
+            let log_level_cell = Cell::from(log.level.clone()).style(log_level_style);
+            let log_created_at_style = Style::default().fg(Color::White);
+            let log_created_at_cell = Cell::from(log.created_at.clone()).style(log_created_at_style);
+            let description_cell = Cell::from(wrapped_description.join("\n")).style(Style::default());
+
             let first_row_cells = vec![
                 Cell::from(format!("{}", index + 1)),
-                Cell::from(wrapped_description.join("\n")), // Multi-line cell instead of extra rows
-                Cell::from(log.level.clone()),
-                Cell::from(log.created_at.clone()),
+                Cell::from(description_cell), // Multi-line cell instead of extra rows
+                Cell::from(log_level_cell),
+                Cell::from(log_created_at_cell),
             ];
 
             let row_height = wrapped_description.len() as u16; // Adjust height to fit all lines
@@ -284,7 +365,7 @@ impl Tui {
         ])
         .style(Style::default().fg(Color::White));
 
-        let instructions = Line::from(" <Up/Down> Navigate | <Left/Right> Cycle Log Level ".bold());
+        let instructions = Line::from(" <Up/Down> Navigate | <Left/Right> Cycle Filter ".bold());
         let logs_len = Line::from(self.logs.read().unwrap().len().to_string());
 
         let table = Table::new(
@@ -300,7 +381,7 @@ impl Tui {
         )
         .block(
             Block::default()
-                .title(format!(" Log Level: {} ", self.log_level.lock().unwrap()).bold())
+                .title(format!(" Log Level: {} ", self.log_level).bold())
                 .title_top(logs_len.right_aligned())
                 .title_bottom(instructions.left_aligned())
                 .borders(ratatui::widgets::Borders::all())

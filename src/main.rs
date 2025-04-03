@@ -1,13 +1,20 @@
 mod export_results;
 mod libs;
 mod models;
+mod scanners;
 mod task_handles;
 mod tui;
 
 use std::env;
 use std::process::exit;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 use task_handles::domain_enumerator;
+
+// statuses
+// scan_created
+// workload_table_created
+// passive_results_populated
+// basic_workload_populated
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -20,8 +27,20 @@ async fn main() -> Result<(), anyhow::Error> {
     let db_path = match os {
         "linux" => format!("/home/{}/.local/share/clickswave/voyage", username),
         "windows" => format!(r"C:\Users\{}\AppData\Roaming\clickswave\voyage", username),
-        "macos" => format!("/Users/{}/Library/Application Support/clickswave/voyage", username),
+        "macos" => format!(
+            "/Users/{}/Library/Application Support/clickswave/voyage",
+            username
+        ),
         _ => ".".to_string(),
+    };
+    if args.recreate_database {
+        // delete db path if exists
+        if std::path::Path::new(db_path.as_str()).exists() {
+            std::fs::remove_dir_all(db_path.clone()).unwrap_or_else(|_| {
+                eprintln!("[ERROR] Error deleting db path");
+                exit(1);
+            });
+        }
     };
     // create db path if not exists
     if !std::path::Path::new(db_path.as_str()).exists() {
@@ -34,7 +53,7 @@ async fn main() -> Result<(), anyhow::Error> {
         true => {
             eprintln!("[WARN] No wordlist specified");
             exit(1);
-        },
+        }
         false => args.wordlist_path.as_str(),
     };
     // initialize sqlite db
@@ -43,7 +62,6 @@ async fn main() -> Result<(), anyhow::Error> {
     let wordlist_hash = libs::wordlist::sha512(wordlist_path).await?;
     let config = models::scan::Config {
         domains: args.domain.clone(),
-        agent: args.agent.clone(),
         wordlist_hash,
     };
     // convert config struct to json string
@@ -62,12 +80,11 @@ async fn main() -> Result<(), anyhow::Error> {
             exit(1);
         }
     };
-    let cached_scan = sqlx::query_as::<_, models::scan::Scan>(
-        "SELECT * FROM scans WHERE config_hash = ?",
-    )
-        .bind(config_hash.clone())
-        .fetch_optional(&sqlite_pool)
-        .await?;
+    let cached_scan =
+        sqlx::query_as::<_, models::scan::Scan>("SELECT * FROM scans WHERE config_hash = ?")
+            .bind(config_hash.clone())
+            .fetch_optional(&sqlite_pool)
+            .await?;
 
     // check if scan is cached, if not create a new scan, return progress position
     let mut scan = match cached_scan {
@@ -77,16 +94,16 @@ async fn main() -> Result<(), anyhow::Error> {
                 "INSERT INTO scans
         (id, config_hash, config, status, no_banner, launch_delay)
     VALUES (?, ?, ?, ?, ?, ?)
-    RETURNING *"
+    RETURNING *",
             )
-                .bind(scan_id.clone())
-                .bind(config_hash.clone())
-                .bind(config_json.clone())
-                .bind("scan_created")
-                .bind(false)
-                .bind(0)
-                .fetch_one(&sqlite_pool)
-                .await;
+            .bind(scan_id.clone())
+            .bind(config_hash.clone())
+            .bind(config_json.clone())
+            .bind("scan_created")
+            .bind(false)
+            .bind(0)
+            .fetch_one(&sqlite_pool)
+            .await;
             match create_scan {
                 Ok(scan) => {
                     libs::sqlite::insert_log(
@@ -94,6 +111,7 @@ async fn main() -> Result<(), anyhow::Error> {
                         "info".to_string(),
                         format!("Scan created with id: {}", scan.id),
                         &sqlite_pool,
+                        args.log_level.to_string()
                     )
                     .await?;
                     scan
@@ -107,7 +125,8 @@ async fn main() -> Result<(), anyhow::Error> {
         Some(scan) => {
             if args.fresh_start {
                 // set row in scans table to 'scan_created'
-                let fresh_start = libs::sqlite::fresh_start(scan.id.clone(), sqlite_pool.clone()).await;
+                let fresh_start =
+                    libs::sqlite::fresh_start(scan.id.clone(), sqlite_pool.clone()).await;
                 match fresh_start {
                     Ok(fresh_scan) => {
                         libs::sqlite::insert_log(
@@ -115,6 +134,7 @@ async fn main() -> Result<(), anyhow::Error> {
                             "info".to_string(),
                             format!("Scan {} set to fresh start", scan.id),
                             &sqlite_pool,
+                            args.log_level.to_string()
                         )
                         .await?;
                         fresh_scan
@@ -130,11 +150,12 @@ async fn main() -> Result<(), anyhow::Error> {
                     "info".to_string(),
                     format!("Scan {} already exists", scan.id),
                     &sqlite_pool,
+                    args.log_level.to_string()
                 )
                 .await?;
                 scan
             }
-        },
+        }
     };
 
     // ---------------------------------------------
@@ -153,6 +174,7 @@ async fn main() -> Result<(), anyhow::Error> {
             "info".to_string(),
             "Workload table created".to_string(),
             &sqlite_pool,
+            args.log_level.to_string()
         )
         .await?;
         scan.status = "workload_table_created".to_string();
@@ -168,24 +190,69 @@ async fn main() -> Result<(), anyhow::Error> {
         };
 
         for domain in config.domains {
-            let populate_basic_workload = libs::sqlite::populate_basic_workload(
-                scan.id.clone(),
-                domain.clone(),
-                wordlist_path.to_string(),
-                sqlite_pool.clone(),
-            )
-            .await;
-            if let Err(e) = populate_basic_workload {
-                eprintln!("[ERROR] Error populating basic workload: {}", e);
-                exit(1);
+            if !args.disable_passive_enum {
+                let passive_scan_results = scanners::passive_scan::execute(&domain, args.clone()).await?;
+                let populate_passive_results = libs::sqlite::populate_passive_scan_results(
+                    scan.id.clone(),
+                    sqlite_pool.clone(),
+                    passive_scan_results,
+                    domain.clone()
+                )
+                .await;
+
+                match populate_passive_results {
+                    Ok(_) => {
+                        libs::sqlite::insert_log(
+                            scan.id.clone(),
+                            "info".to_string(),
+                            format!("Passive results populated for domain: {}", domain),
+                            &sqlite_pool,
+                            args.log_level.to_string()
+                        )
+                        .await?;
+                        scan.status = "passive_results_populated".to_string();
+                    }
+                    Err(e) => {
+                        libs::sqlite::insert_log(
+                            scan.id.clone(),
+                            "error".to_string(),
+                            format!("Could not populate passive results: {}", e),
+                            &sqlite_pool,
+                            args.log_level.to_string()
+                        )
+                        .await?;
+                    }
+                }
             }
-            libs::sqlite::insert_log(
-                scan.id.clone(),
-                "info".to_string(),
-                format!("Basic workload populated for domain: {}", domain),
-                &sqlite_pool,
-            ).await?;
-            scan.status = "basic_workload_populated".to_string();
+        }
+    }
+
+    if scan.status == "passive_results_populated"
+        || (args.disable_passive_enum && scan.status == "workload_table_created")
+    {
+        if !args.disable_active_enum {
+            for domain in config.domains {
+                let populate_basic_workload = libs::sqlite::populate_basic_workload(
+                    scan.id.clone(),
+                    domain.clone(),
+                    wordlist_path.to_string(),
+                    sqlite_pool.clone(),
+                )
+                    .await;
+                if let Err(e) = populate_basic_workload {
+                    eprintln!("[ERROR] Error populating basic workload: {}", e);
+                    exit(1);
+                }
+                libs::sqlite::insert_log(
+                    scan.id.clone(),
+                    "info".to_string(),
+                    format!("Basic workload populated for domain: {}", domain),
+                    &sqlite_pool,
+                    args.log_level.to_string()
+                )
+                    .await?;
+                scan.status = "basic_workload_populated".to_string();
+            }
         }
     }
 
@@ -197,12 +264,17 @@ async fn main() -> Result<(), anyhow::Error> {
         "info".to_string(),
         "Previously halted items (if any) has been reset".to_string(),
         &sqlite_pool,
-    ).await?;
+        args.log_level.to_string()
+    )
+    .await?;
 
     let is_paused = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let log_level = Arc::new(Mutex::new(args.log_level.to_string()));
-    let results_arc = Arc::new(RwLock::new(libs::sqlite::get_results(scan.id.clone(), sqlite_pool.clone()).await?));
-    let logs_arc = Arc::new(RwLock::new(libs::sqlite::get_logs(scan.id.clone(), "debug".to_string(), sqlite_pool.clone()).await?));
+    let results_arc = Arc::new(RwLock::new(
+        libs::sqlite::get_results(scan.id.clone(), sqlite_pool.clone()).await?,
+    ));
+    let logs_arc = Arc::new(RwLock::new(
+        libs::sqlite::get_logs(scan.id.clone(), "debug".to_string(), sqlite_pool.clone(), ).await?,
+    ));
     // setup threads
     let mut threads = vec![];
     // push scanner threads
@@ -211,28 +283,33 @@ async fn main() -> Result<(), anyhow::Error> {
             scan.id.clone(),
             sqlite_pool.clone(),
             is_paused.clone(),
-            args.interval.clone()
+            args.clone(),
         ));
         threads.push(thread);
         libs::sqlite::insert_log(
             scan.id.clone(),
             "debug".to_string(),
-            format!("Task {} spawned", index+1),
+            format!("Task {} spawned", index + 1),
             &sqlite_pool,
-        ).await?;
+            args.log_level.to_string()
+        )
+        .await?;
     }
     libs::sqlite::insert_log(
         scan.id.clone(),
         "info".to_string(),
         format!("Enumeration tasks spawned: {}", args.tasks.clone()),
         &sqlite_pool,
-    ).await?;
+        args.log_level.to_string()
+    )
+    .await?;
     // thread responsible for mutating tui data
     threads.push(tokio::spawn(task_handles::result_mutator::handle(
         scan.id.clone(),
         sqlite_pool.clone(),
         results_arc.clone(),
-        logs_arc.clone()
+        logs_arc.clone(),
+        args.clone(),
     )));
 
     // setup tui
@@ -248,9 +325,10 @@ async fn main() -> Result<(), anyhow::Error> {
         status: "Running".to_string(),
         current_tab: tui::Tab::Home,
         logs: logs_arc.clone(),
-        log_level,
         args: args.clone(),
         output_written: false,
+        log_level: "debug".to_string(),
+        method_filter: "none".to_string(),
     }
     .run(&mut terminal)
     .await?;
