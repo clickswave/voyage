@@ -1,5 +1,4 @@
 use clap::{Parser, ValueEnum};
-use crate::libs;
 
 #[derive(Clone, Debug, ValueEnum)]
 pub enum LogLevel {
@@ -43,9 +42,6 @@ impl std::fmt::Display for OutputFormat {
     }
 }
 
-
-
-
 /// {n}
 /// |---------------------------------------------------|{n}
 /// |                    V O Y A G E                    |{n}
@@ -71,7 +67,7 @@ pub struct Args {
     #[arg(short, long, default_value_t = 0)]
     pub interval: u64,
 
-    /// Specify the number of tasks to use. Defaults to 2
+    /// Specify the number of tasks to use
     #[arg(short, long, default_value_t = 2)]
     pub tasks: i64,
 
@@ -79,41 +75,67 @@ pub struct Args {
     #[arg(long, default_value_t = false)]
     pub fresh_start: bool,
 
+    // TODO: implement this feature
     /// Ignore any progress
-    #[arg(long, default_value_t = false)]
-    pub volatile: bool,
+    // #[arg(long, default_value_t = false)]
+    // pub volatile: bool,
 
-    /// Specify the user-agent
-    #[arg(short, long, default_value_t = format!("voyage/0.0.0"))]
-    pub agent: String,
+    /// Specify whether the user agent should be randomized or remain static for an active enumeration task
+    #[arg(long, default_value_t = false)]
+    pub active_random_user_agent: bool,
+
+    /// Specify whether the user agent should be randomized or remain static for a passive enumeration task
+    #[arg(long, default_value_t = false)]
+    pub passive_random_user_agent: bool,
+
+    /// Specify the user agent to be used for active enumeration.
+    #[arg(short, long, default_value_t = format!("voyage/{}", env!("CARGO_PKG_VERSION")))]
+    pub active_user_agent: String,
+
+    /// Specify the user agent to be used for passive enumeration.
+    #[arg(short, long, default_value_t = format!("voyage/{}", env!("CARGO_PKG_VERSION")))]
+    pub passive_user_agent: String,
 
     /// Disable banner display on startup
     #[arg(long, default_value_t = false)]
     pub no_banner: bool,
 
+    /// Delete existing database and start from scratch.
+    #[arg(long, default_value_t = false)]
+    pub recreate_database: bool,
+
     /// Specify launch delay in seconds
     #[arg(long, default_value_t = 0)]
     pub launch_delay: i64,
 
-    /// Set log level to debug, info, warn, error. Defaults to warn
-    #[arg(long, value_enum, default_value_t = LogLevel::Warn)]
+    /// Set minimum log level to debug, info, warn, error
+    #[arg(long, value_enum, default_value_t = LogLevel::Debug)]
     pub log_level: LogLevel,
 
-    /// Set output format to text or csv. Defaults to warn
+    /// Set output format to text or csv
     #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
     pub output_format: OutputFormat,
 
     /// Specify the output file path
     #[arg(short, long, default_value_t = format!(""))]
     pub output_path: String,
+
+    /// Disable passive subdomain enumeration
+    #[arg(long, default_value_t = false)]
+    pub disable_passive_enum: bool,
+
+    /// Disable active subdomain enumeration
+    #[arg(long, default_value_t = false)]
+    pub disable_active_enum: bool,
 }
 
 pub fn parse() -> Args {
     let args = Args::parse();
 
-    // display banner unless disabled
-    if !args.no_banner {
-        libs::banner::full();
+    // if both passive and active enumeration are disabled, exit
+    if args.disable_passive_enum && args.disable_active_enum {
+        eprintln!("[WARN] Cannot proceed: Passive and active enumeration are disabled.");
+        std::process::exit(1);
     }
 
     // sleep for launch delay
