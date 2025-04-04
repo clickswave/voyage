@@ -331,15 +331,17 @@ impl Tui {
             let wrapped_description = textwrap::wrap(&log.description, max_desc_width);
 
             let log_level_color = match log_level_index {
-                0 => Color::Green,
-                1 => Color::Yellow,
-                2 => Color::Red,
+                0 => Color::White,
+                1 => Color::Green,
+                2 => Color::Yellow,
+                3 => Color::Red,
                 _ => Color::White,
             };
+
             let log_level_style = Style::default().fg(log_level_color);
             let log_level_cell = Cell::from(log.level.clone()).style(log_level_style);
-            let log_created_at_style = Style::default().fg(Color::White);
-            let log_created_at_cell = Cell::from(log.created_at.clone()).style(log_created_at_style);
+
+            let log_created_at_cell = Cell::from(log.created_at.clone());
             let description_cell = Cell::from(wrapped_description.join("\n")).style(Style::default());
 
             let first_row_cells = vec![
