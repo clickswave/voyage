@@ -1,7 +1,10 @@
-# Voyage
+![Voyage](https://github.com/clickswave/voyage/blob/main/readme-cover.png?raw=true)
 
 **Voyage is a subdomain enumeration tool built in Rust that combines active and passive discovery methods. It keeps track of progress using SQLite, so you can stop and resume scans without repeating work. The tool features a terminal user interface (TUI) for real-time monitoring and is designed to be fast and efficient, leveraging multi-threading to handle large-scale reconnaissance.**
 
+
+
+## Screenshots
 ![Voyage SS1](https://github.com/clickswave/voyage/blob/main/voyage-ss1.png?raw=true)
 ![Voyage SS2](https://github.com/clickswave/voyage/blob/main/voyage-ss2.png?raw=true)
 
