@@ -21,7 +21,7 @@ pub async fn execute(domain: &str, args: Args) -> Result<HashMap<String, String>
         crt_sh_results
             .into_iter()
             .map(|subdomain| (subdomain.to_string(), "crt.sh".to_string()))
-            .collect(),
+            .collect::<HashMap<String, String>>(),
     );
 
     Ok(passive_scan_result)
