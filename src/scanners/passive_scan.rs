@@ -11,8 +11,9 @@ pub async fn execute(domain: &str, args: Args) -> Result<HashMap<String, String>
     let client = reqwest::Client::builder()
         .user_agent(user_agent)
         .build()?;
+        let domain_string = domain.to_string();
+        let crt_sh_results = crate::scanners::providers::crt_sh::fetch(&client, &domain_string).await?;
 
-    let crt_sh_results = crate::scanners::providers::crt_sh::fetch(&client, domain).await?;
 
     // Use `map` and `collect` for a cleaner construction
     let passive_scan_result = crt_sh_results
