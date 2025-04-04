@@ -1,189 +1,102 @@
 use hickory_resolver::TokioResolver;
 use reqwest::Client;
+use futures::future::join_all;
 
 
 pub struct NegativeResult {
     pub level: String,
     pub description: String,
 }
+
 pub struct ActiveScanResult {
     pub found: bool,
     pub source: String,
     pub negatives: Vec<NegativeResult>,
 }
 
-pub async fn execute(resolver: &TokioResolver, reqwest_client: &Client, domain: &String) -> ActiveScanResult {
+async fn perform_dns_lookup(resolver: &TokioResolver, domain: &str) -> Vec<NegativeResult> {
+    let lookup_result = resolver.lookup_ip(domain).await;
+
+    match lookup_result {
+        Ok(lookup) => {
+            let has_ipv4 = lookup.iter().any(|ip| ip.is_ipv4());
+            let has_ipv6 = lookup.iter().any(|ip| ip.is_ipv6());
+
+            let mut negatives = Vec::new();
+
+            if !has_ipv4 {
+                negatives.push(NegativeResult {
+                    level: "info".into(),
+                               description: format!("No IPv4 addresses found for {}", domain),
+                });
+            }
+            if !has_ipv6 {
+                negatives.push(NegativeResult {
+                    level: "info".into(),
+                               description: format!("No IPv6 addresses found for {}", domain),
+                });
+            }
+
+            negatives
+        }
+        Err(e) if e.is_no_records_found() => vec![NegativeResult {
+            level: "info".into(),
+            description: format!("No DNS records found for {}", domain),
+        }],
+        Err(e) => vec![NegativeResult {
+            level: "error".into(),
+            description: format!("DNS lookup error for {}: {}", domain, e),
+        }],
+    }
+}
+
+
+async fn perform_request(client: &Client, protocol: &str, domain: &str) -> Result<(), NegativeResult> {
+    let url = format!("{}://{}", protocol, domain);
+    match client.get(&url).send().await {
+        Ok(_) => Ok(()),
+        Err(e) if e.is_timeout() => Err(NegativeResult {
+            level: "warn".into(),
+            description: format!("{} request timed out for {}", protocol.to_uppercase(), domain),
+        }),
+        Err(e) => Err(NegativeResult {
+            level: "error".into(),
+            description: format!("{} request error: {}", protocol.to_uppercase(), e),
+        }),
+    }
+}
+
+pub async fn execute(
+    resolver: &TokioResolver,
+    reqwest_client: &Client,
+    domain: &str,
+) -> ActiveScanResult {
     let mut scan_result = ActiveScanResult {
         found: false,
-        source: "".to_string(),
+        source: "".into(),
         negatives: vec![],
     };
 
-    let ipv4_lookup = resolver.ipv4_lookup(domain).await;
-    match ipv4_lookup {
-        Ok(_) => {
-            scan_result.found = true;
-            return scan_result;
-        },
-        Err(e) => {
-            match e.is_no_records_found() {
-                true => {
-                    scan_result.negatives.push(
-                        NegativeResult {
-                            level: "info".to_string(),
-                            description: format!("No IPv4 addresses found for {}", domain),
-                        }
-                    )
-                }
-                false => {
-                    scan_result.negatives.push(
-                        NegativeResult {
-                            level: "error".to_string(),
-                            description: format!("IPv4 lookup error: {}", e),
-                        }
-                    )
-                }
-            }
-        }
+    // DNS Checks concurrently
+    scan_result.negatives.extend(perform_dns_lookup(resolver, domain).await);
+
+    if scan_result.negatives.iter().all(|n| n.level != "error") {
+        scan_result.found = true;
+        return scan_result;
     }
 
-    let ipv6_lookup = resolver.ipv6_lookup(domain).await;
-    match ipv6_lookup {
-        Ok(_) => {
-            scan_result.found = true;
-            return scan_result;
-        },
-        Err(e) => {
-            match e.is_no_records_found() {
-                true => {
-                    scan_result.negatives.push(
-                        NegativeResult {
-                            level: "info".to_string(),
-                            description: format!("No IPv6 addresses found for {}", domain),
-                        }
-                    );
-                }
-                false => {
-                    scan_result.negatives.push(
-                        NegativeResult {
-                            level: "error".to_string(),
-                            description: format!("IPv6 lookup error: {}", e),
-                        }
-                    );
-                }
-            }
-        }
-    }
+    // Protocol checks concurrently
+    let protocols = vec!["http", "https", "ftp", "smtp"];
+    let protocol_checks = protocols.into_iter().map(|proto| perform_request(reqwest_client, proto, domain));
+    let protocol_results = join_all(protocol_checks).await;
 
-    let request = reqwest_client.get(format!("http://{domain}")).send().await;
-    match request {
-        Ok(_) => {
-            scan_result.found = true;
-            return scan_result;
-        },
-        Err(e) => {
-            match e.is_timeout() {
-                true => {
-                    scan_result.negatives.push(
-                        NegativeResult {
-                            level: "warn".to_string(),
-                            description: format!("HTTP request timed out for {}", domain),
-                        }
-                    );
-                }
-                false => {
-                    scan_result.negatives.push(
-                        NegativeResult {
-                            level: "error".to_string(),
-                            description: format!("HTTP request error: {}", e),
-                        }
-                    );
-                }
+    for result in protocol_results {
+        match result {
+            Ok(_) => {
+                scan_result.found = true;
+                return scan_result; // Early return if service found
             }
-        }
-    }
-
-    let request = reqwest_client.get(format!("https://{domain}")).send().await;
-    match request {
-        Ok(_) => {
-            scan_result.found = true;
-            return scan_result;
-        },
-        Err(e) => {
-            match e.is_timeout() {
-                true => {
-                    scan_result.negatives.push(
-                        NegativeResult {
-                            level: "warn".to_string(),
-                            description: format!("HTTPS request timed out for {}", domain),
-                        }
-                    );
-                }
-                false => {
-                    scan_result.negatives.push(
-                        NegativeResult {
-                            level: "error".to_string(),
-                            description: format!("HTTPS request error: {}", e),
-                        }
-                    );
-                }
-            }
-        }
-    }
-
-    let request = reqwest_client.get(format!("ftp://{domain}")).send().await;
-    match request {
-        Ok(_) => {
-            scan_result.found = true;
-            return scan_result;
-        },
-        Err(e) => {
-            match e.is_timeout() {
-                true => {
-                    scan_result.negatives.push(
-                        NegativeResult {
-                            level: "warn".to_string(),
-                            description: format!("FTP request timed out for {}", domain),
-                        }
-                    );
-                }
-                false => {
-                    scan_result.negatives.push(
-                        NegativeResult {
-                            level: "error".to_string(),
-                            description: format!("FTP request error: {}", e),
-                        }
-                    );
-                }
-            }
-        }
-    }
-
-    let request = reqwest_client.get(format!("smtp://{domain}")).send().await;
-    match request {
-        Ok(_) => {
-            scan_result.found = true;
-            return scan_result;
-        },
-        Err(e) => {
-            match e.is_timeout() {
-                true => {
-                    scan_result.negatives.push(
-                        NegativeResult {
-                            level: "warn".to_string(),
-                            description: format!("SMTP request timed out for {}", domain),
-                        }
-                    );
-                }
-                false => {
-                    scan_result.negatives.push(
-                        NegativeResult {
-                            level: "error".to_string(),
-                            description: format!("SMTP request error: {}", e),
-                        }
-                    );
-                }
-            }
+            Err(negative) => scan_result.negatives.push(negative),
         }
     }
 
