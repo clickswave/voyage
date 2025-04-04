@@ -15,6 +15,8 @@ pub async fn execute(domain: &str, args: Args) -> Result<HashMap<String, String>
     let domain_string = domain.to_string();
     let crt_sh_results = crate::scanners::providers::crt_sh::fetch(&client, &domain_string).await?;
 
+    let mut passive_scan_result = HashMap::new();
+
     passive_scan_result.extend(
         crt_sh_results
             .into_iter()
