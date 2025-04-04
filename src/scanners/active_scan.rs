@@ -2,6 +2,7 @@ use hickory_resolver::TokioResolver;
 use reqwest::Client;
 use futures::future::join_all;
 
+
 pub struct NegativeResult {
     pub level: String,
     pub description: String,
@@ -14,27 +15,41 @@ pub struct ActiveScanResult {
 }
 
 async fn perform_dns_lookup(resolver: &TokioResolver, domain: &str) -> Vec<NegativeResult> {
-    let lookups = vec![
-        ("IPv4", resolver.ipv4_lookup(domain)),
-        ("IPv6", resolver.ipv6_lookup(domain)),
-    ];
+    let lookup_result = resolver.lookup_ip(domain).await;
 
-    let results = join_all(lookups.into_iter().map(|(proto, lookup)| async move {
-        match lookup.await {
-            Ok(_) => None,
-            Err(e) if e.is_no_records_found() => Some(NegativeResult {
-                level: "info".into(),
-                description: format!("No {} addresses found for {}", proto, domain),
-            }),
-            Err(e) => Some(NegativeResult {
-                level: "error".into(),
-                description: format!("{} lookup error: {}", proto, e),
-            }),
+    match lookup_result {
+        Ok(lookup) => {
+            let has_ipv4 = lookup.iter().any(|ip| ip.is_ipv4());
+            let has_ipv6 = lookup.iter().any(|ip| ip.is_ipv6());
+
+            let mut negatives = Vec::new();
+
+            if !has_ipv4 {
+                negatives.push(NegativeResult {
+                    level: "info".into(),
+                               description: format!("No IPv4 addresses found for {}", domain),
+                });
+            }
+            if !has_ipv6 {
+                negatives.push(NegativeResult {
+                    level: "info".into(),
+                               description: format!("No IPv6 addresses found for {}", domain),
+                });
+            }
+
+            negatives
         }
-    })).await;
-
-    results.into_iter().filter_map(|res| res).collect()
+        Err(e) if e.is_no_records_found() => vec![NegativeResult {
+            level: "info".into(),
+            description: format!("No DNS records found for {}", domain),
+        }],
+        Err(e) => vec![NegativeResult {
+            level: "error".into(),
+            description: format!("DNS lookup error for {}: {}", domain, e),
+        }],
+    }
 }
+
 
 async fn perform_request(client: &Client, protocol: &str, domain: &str) -> Result<(), NegativeResult> {
     let url = format!("{}://{}", protocol, domain);
