@@ -1,7 +1,6 @@
-use crate::scanners::techniques;
 use hickory_resolver::TokioResolver;
 use reqwest::Client;
-use crate::libs::args::Args;
+use futures::future::join_all;
 
 pub struct NegativeResult {
     pub level: String,
@@ -14,64 +13,90 @@ pub struct ActiveScanResult {
     pub negatives: Vec<NegativeResult>,
 }
 
+async fn perform_dns_lookup(resolver: &TokioResolver, domain: &str) -> Vec<NegativeResult> {
+    match resolver.lookup_ip(domain).await {
+        Ok(lookup) => {
+            let has_ipv4 = lookup.iter().any(|ip| ip.is_ipv4());
+            let has_ipv6 = lookup.iter().any(|ip| ip.is_ipv6());
+
+            let mut negatives = Vec::new();
+            if !has_ipv4 {
+                negatives.push(NegativeResult {
+                    level: "info".into(),
+                    description: format!("No IPv4 addresses found for {}", domain),
+                });
+            }
+            if !has_ipv6 {
+                negatives.push(NegativeResult {
+                    level: "info".into(),
+                    description: format!("No IPv6 addresses found for {}", domain),
+                });
+            }
+
+            negatives
+        }
+        Err(e) if e.is_no_records_found() => vec![NegativeResult {
+            level: "info".into(),
+            description: format!("No DNS records found for {}", domain),
+        }],
+        Err(e) => vec![NegativeResult {
+            level: "error".into(),
+            description: format!("DNS lookup error for {}: {}", domain, e),
+        }],
+    }
+}
+
+async fn perform_request(client: &Client, protocol: &str, domain: &str) -> Result<(), NegativeResult> {
+    let url = format!("{}://{}", protocol, domain);
+    match client.get(&url).send().await {
+        Ok(_) => Ok(()),
+        Err(e) if e.is_timeout() => Err(NegativeResult {
+            level: "warn".into(),
+            description: format!("{} request timed out for {}", protocol.to_uppercase(), domain),
+        }),
+        Err(e) => Err(NegativeResult {
+            level: "error".into(),
+            description: format!("{} request error: {}", protocol.to_uppercase(), e),
+        }),
+    }
+}
+
 pub async fn execute(
     resolver: &TokioResolver,
     reqwest_client: &Client,
-    args: &Args,
-    domain: &String,
+    domain: &str,
 ) -> ActiveScanResult {
+    let protocols = ["http", "https", "ftp", "smtp"];
+    let protocol_futures = protocols
+        .iter()
+        .map(|&proto| perform_request(reqwest_client, proto, domain));
+
+    // Run DNS and protocol checks concurrently
+    let (dns_negatives, protocol_results) = tokio::join!(
+        perform_dns_lookup(resolver, domain),
+        join_all(protocol_futures)
+    );
+
     let mut scan_result = ActiveScanResult {
         found: false,
-        source: "".to_string(),
-        negatives: vec![],
+        source: String::new(),
+        negatives: dns_negatives,
     };
-    // ipv4 lookup
-    if !args.exclude_active_technique.contains(&"ipv4_lookup".to_string()) {
-        let ipv4_lookup = techniques::ipv4_lookup::execute(resolver, domain).await;
-        match ipv4_lookup {
+
+    if scan_result.negatives.iter().all(|n| n.level != "error") {
+        scan_result.found = true;
+        return scan_result;
+    }
+
+    for result in protocol_results {
+        match result {
             Ok(_) => {
                 scan_result.found = true;
-                scan_result.source = "ipv4_lookup".to_string();
                 return scan_result;
             }
-            Err(e) => scan_result.negatives.push(e),
+            Err(neg) => scan_result.negatives.push(neg),
         }
     }
-    // ipv6 lookup
-    if !args.exclude_active_technique.contains(&"ipv6_lookup".to_string()) {
-        let ipv6_lookup = techniques::ipv6_lookup::execute(resolver, domain).await;
-        match ipv6_lookup {
-            Ok(_) => {
-                scan_result.found = true;
-                scan_result.source = "ipv6_lookup".to_string();
-                return scan_result;
-            }
-            Err(e) => scan_result.negatives.push(e),
-        }
-    }
-    // http probing
-    if !args.exclude_active_technique.contains(&"http_probing".to_string()) {
-        let http_probing = techniques::http_probing::execute(reqwest_client, domain, &args.http_probing_port).await;
-        match http_probing {
-            Ok(_) => {
-                scan_result.found = true;
-                scan_result.source = "http_probing".to_string();
-                return scan_result;
-            }
-            Err(e) => scan_result.negatives.extend(e),
-        }
-    }
-    // https probing
-    if !args.exclude_active_technique.contains(&"https_probing".to_string()) {
-        let https_probing = techniques::https_probing::execute(reqwest_client, domain, &args.https_probing_port).await;
-        match https_probing {
-            Ok(_) => {
-                scan_result.found = true;
-                scan_result.source = "https_probing".to_string();
-                return scan_result;
-            }
-            Err(e) => scan_result.negatives.extend(e),
-        }
-    }
+
     scan_result
 }
