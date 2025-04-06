@@ -3,13 +3,13 @@ use reqwest::Client;
 use serde::Deserialize;
 
 #[derive(Deserialize)]
-struct CrtResponse {
-    common_name: String,
+struct Response {
+    name_value: String,
 }
 
 pub async fn fetch(
     reqwest_client: &Client,
-    domain: &String
+    domain: &str
 ) -> Result<Vec<String>, anyhow::Error> {
     let mut results = vec![];
 
@@ -17,13 +17,13 @@ pub async fn fetch(
     let response = reqwest_client.get(&url).send().await?;
 
     if response.status().is_success() {
-        let body: Vec<CrtResponse> = response.json().await?;
+        let body: Vec<Response> = response.json().await?;
         let mut unique_subdomains = HashSet::new();
         for entry in body {
-            let subdomain = entry.common_name;
+            let subdomain = entry.name_value;
             if subdomain.ends_with(domain) {
                 let stripped = subdomain.strip_suffix(domain).unwrap_or("").trim_end_matches('.');
-                if !stripped.is_empty() {
+                if !stripped.is_empty() && stripped != "*" {
                     unique_subdomains.insert(stripped.to_string());
                 }
             }

@@ -56,3 +56,4 @@ Thumbs.db
 *.swo
 *.txt
 .sqlx
+output.txt

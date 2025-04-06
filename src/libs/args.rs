@@ -127,6 +127,22 @@ pub struct Args {
     /// Disable active subdomain enumeration
     #[arg(long, default_value_t = false)]
     pub disable_active_enum: bool,
+
+    /// Specify the passive enumeration sources to be excluded from passive enumeration
+    #[arg(long)]
+    pub exclude_passive_source: Vec<String>,
+
+    /// Specify the active enumeration to be excluded from passive enumeration
+    #[arg(long)]
+    pub exclude_active_technique: Vec<String>,
+
+    /// Specify ports to be used for http probing
+    #[arg(long, default_values_t = vec![80])]
+    pub http_probing_port: Vec<u16>,
+
+    /// Specify ports to be used for https probing
+    #[arg(long, default_values_t = vec![443])]
+    pub https_probing_port: Vec<u16>,
 }
 
 pub fn parse() -> Args {
@@ -134,7 +150,7 @@ pub fn parse() -> Args {
 
     // if both passive and active enumeration are disabled, exit
     if args.disable_passive_enum && args.disable_active_enum {
-        eprintln!("[WARN] Cannot proceed: Passive and active enumeration are disabled.");
+        eprintln!("[WARN] Cannot proceed. Passive and active enumeration are disabled.");
         std::process::exit(1);
     }
 

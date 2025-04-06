@@ -192,6 +192,7 @@ async fn main() -> Result<(), anyhow::Error> {
         for domain in config.domains {
             if !args.disable_passive_enum {
                 let passive_scan_results = scanners::passive_scan::execute(&domain, args.clone()).await?;
+
                 let populate_passive_results = libs::sqlite::populate_passive_scan_results(
                     scan.id.clone(),
                     sqlite_pool.clone(),
