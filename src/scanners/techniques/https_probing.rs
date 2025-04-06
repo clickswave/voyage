@@ -1,5 +1,6 @@
 use crate::scanners::active_scan::NegativeResult;
 
+#[allow(dead_code)]
 pub async fn execute(
     reqwest_client: &reqwest::Client,
     domain: &String,
