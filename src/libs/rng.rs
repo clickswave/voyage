@@ -1,14 +1,19 @@
 use rand::Rng;
+use uuid::Uuid;
 
-pub fn uuid() -> String { String::from(uuid::Uuid::new_v4()) }
+/// Generates a random UUID as a `String`.
+pub fn uuid() -> String {
+    Uuid::new_v4().to_string()
+}
 
+/// Generates a scan ID with a prefix and UUID-based identifier.
 pub fn scan_id() -> String {
     format!("v_{}", uuid().replace('-', "_"))
 }
 
+/// Returns a random User-Agent string from a predefined list.
 pub fn user_agent() -> String {
-
-    let user_agents = [
+    const USER_AGENTS: &[&str] = &[
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
@@ -19,6 +24,7 @@ pub fn user_agent() -> String {
         "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:107.0) Gecko/20100101 Firefox/107.0",
     ];
 
-    let random_index = rand::thread_rng().gen_range(0..user_agents.len());
-    user_agents[random_index].to_string()
+    let mut rng = rand::thread_rng();
+    let index = rng.gen_range(0..USER_AGENTS.len());
+    USER_AGENTS[index].to_string()
 }
