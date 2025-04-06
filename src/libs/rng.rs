@@ -1,5 +1,8 @@
 use rand::Rng;
+use rand::rngs::ThreadRng;
 use uuid::Uuid;
+use rand::rng;
+
 
 /// Generates a random UUID as a `String`.
 pub fn uuid() -> String {
@@ -24,7 +27,7 @@ pub fn user_agent() -> String {
         "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:107.0) Gecko/20100101 Firefox/107.0",
     ];
 
-    let mut rng = rand::thread_rng();
-    let index = rng.gen_range(0..USER_AGENTS.len());
+    let mut rng: ThreadRng = rng();
+    let index = rng.random_range(0..USER_AGENTS.len());
     USER_AGENTS[index].to_string()
 }
