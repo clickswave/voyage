@@ -97,8 +97,7 @@ pub async fn handle(
             }
 
             let test_domain = format!("{}.{}", result.subdomain, result.domain);
-            let scan_result =
-                crate::scanners::active_scan::execute(&resolver, &client, &test_domain).await;
+            let scan_result = crate::scanners::active_scan::execute(&resolver, &client, &args, &test_domain).await;
 
             for negative_result in scan_result.negatives {
                 let _ = libs::sqlite::insert_log(
@@ -123,9 +122,7 @@ pub async fn handle(
                     .await;
                     "found"
                 }
-                false => {
-                    "not found"
-                }
+                false => "not found",
             };
 
             let update_query = format!(

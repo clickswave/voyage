@@ -199,10 +199,14 @@ impl Widget for &Tui {
             progress_percentage, found_len, found_len + not_found, total
         );
         let progress_area = Rect::new(1, 1, area.width - 2, 1);
-
+        let progress_ratio = match (found_len + not_found) as f64 / total as f64 {
+            ratio if ratio > 1.0 => 1.0,
+            ratio if ratio < 0.0 => 0.0,
+            ratio => ratio,
+        };
         Gauge::default()
             .gauge_style(Style::default().fg(Color::Indexed(2)).bg(Color::Indexed(0)))
-            .ratio((found_len + not_found) as f64 / total as f64)
+            .ratio(progress_ratio)
             .label(progress_text)
             .render(progress_area, buf);
 
@@ -222,27 +226,22 @@ impl Tui {
         let mut displayed_list = vec![];
         for (index, result) in found_items.found.iter().enumerate() {
             if index >= self.scroll_offset && index < self.scroll_offset + visible_items as usize {
-                if self.method_filter == "none" {
-                    let status_style = Style::default().fg(Color::Green);
+                let found_style = Style::default().fg(Color::Green);
+
+                let index_cell = Cell::from(format!("{}", index + 1));
+                let domain_cell = Cell::from(format!("{}.{}", result.subdomain, result.domain.clone()));
+                let status_cell = Cell::from("Found");
+                let method_cell = Cell::from(result.method.clone());
+                let source_cell = Cell::from(result.source.clone());
+
+                if self.method_filter == "none" || self.method_filter == result.method {
                     let row = Row::new(vec![
-                        format!("{}", index + 1),
-                        format!("{}.{}", result.subdomain, result.domain.clone()),
-                        "Found".to_string(),
-                        result.method.clone(),
-                        result.source.clone(),
-                    ])
-                    .style(status_style);
-                    displayed_list.push(row);
-                } else if self.method_filter == result.method {
-                    let status_style = Style::default().fg(Color::Green);
-                    let row = Row::new(vec![
-                        format!("{}", index + 1),
-                        format!("{}.{}", result.subdomain, result.domain.clone()),
-                        "Found".to_string(),
-                        result.method.clone(),
-                        result.source.clone(),
-                    ])
-                    .style(status_style);
+                        index_cell,
+                        domain_cell,
+                        status_cell.style(found_style),
+                        method_cell,
+                        source_cell,
+                    ]);
                     displayed_list.push(row);
                 }
             }
@@ -250,7 +249,7 @@ impl Tui {
 
         let header_style = Style::default().fg(Color::Indexed(1));
 
-        let header = ["No.", "Domain", "Status", "Method", "Source"]
+        let header = ["No.", "Domain", "Status", "Method", "Source/Technique"]
             .into_iter()
             .map(Cell::from)
             .collect::<Row>()
@@ -268,18 +267,20 @@ impl Tui {
         .style(Style::default().fg(Color::White));
 
         let instructions = Line::from(" <Up/Down> Navigate | <Left/Right> Cycle Filter ".bold());
+        let cell_sizes = [
+            Constraint::Length(5),
+            Constraint::Fill(2),
+            Constraint::Length(10),
+            Constraint::Length(10),
+            Constraint::Length(18),
+        ];
+
         let table = Table::new(
             // Insert separator row after header
             std::iter::once(header.clone())
                 .chain(std::iter::once(separator))
                 .chain(displayed_list),
-            [
-                Constraint::Percentage(10),
-                Constraint::Fill(1),
-                Constraint::Percentage(20),
-                Constraint::Length(12),
-                Constraint::Length(12),
-            ],
+            cell_sizes,
         )
         .block(
             Block::default()
@@ -288,13 +289,7 @@ impl Tui {
                 .borders(ratatui::widgets::Borders::all())
                 .border_type(BorderType::Rounded),
         )
-        .widths(&[
-            Constraint::Percentage(10),
-            Constraint::Percentage(60),
-            Constraint::Percentage(30),
-            Constraint::Length(12),
-            Constraint::Length(12),
-        ])
+        .widths(cell_sizes)
         .highlight_spacing(HighlightSpacing::Always);
 
         let table_area = Rect::new(area.x + 1, area.y + 3, area.width - 2, area.height - 4);
