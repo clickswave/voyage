@@ -2,6 +2,19 @@
 
 **Voyage is a subdomain enumeration tool built in Rust that combines active and passive discovery methods. It keeps track of progress using SQLite, so you can stop and resume scans without repeating work. The tool features a terminal user interface (TUI) for real-time monitoring and is designed to be fast and efficient, leveraging multi-threading to handle large-scale reconnaissance.**
 
+<p align="center">
+<a>
+<img src="https://img.shields.io/badge/Language-Rust-%23B7410E.svg?style=for-the-badge&logo=rust&logoColor=white">
+</a>
+<a>
+<img src="https://img.shields.io/badge/PLATFORMS-WINDOWS | MAC | LINUX-%236bc900.svg?style=for-the-badge&logo=Material Design Icons&logoColor=white">
+</a>
+<a href="https://discord.gg/QMuyWSY5sa?utm_source=github&utm_medium=web">
+<img src="https://img.shields.io/badge/COMMUNITY-DISCORD-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white">
+</a>
+</p>
+<hr>
+
 ## Key Features
 
 - **Stateful Enumeration Engine**  

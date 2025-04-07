@@ -10,12 +10,6 @@ use std::process::exit;
 use std::sync::{Arc, RwLock};
 use task_handles::domain_enumerator;
 
-// statuses
-// scan_created
-// workload_table_created
-// passive_results_populated
-// basic_workload_populated
-
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     // parse arguments
