@@ -10,12 +10,6 @@ use std::process::exit;
 use std::sync::{Arc, RwLock};
 use task_handles::domain_enumerator;
 
-// statuses
-// scan_created
-// workload_table_created
-// passive_results_populated
-// basic_workload_populated
-
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     // parse arguments
@@ -318,7 +312,8 @@ async fn main() -> Result<(), anyhow::Error> {
     tui::Tui {
         pause: is_paused,
         halt: false,
-        scroll_offset: 0,
+        home_scroll_offset: 0,
+        logs_scroll_offset: 0,
         refresh_rate: 1.0,
         sqlite_pool: sqlite_pool.clone(),
         scan_id: scan.id.clone(),
