@@ -19,6 +19,6 @@ pub fn user_agent() -> String {
         "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:107.0) Gecko/20100101 Firefox/107.0",
     ];
 
-    let random_index = rand::thread_rng().gen_range(0..user_agents.len());
+    let random_index = rand::rng().random_range(0..user_agents.len());
     user_agents[random_index].to_string()
 }

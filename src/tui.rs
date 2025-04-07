@@ -26,7 +26,8 @@ pub enum Tab {
 pub struct Tui {
     pub halt: bool,
     pub pause: Arc<core::sync::atomic::AtomicBool>,
-    pub scroll_offset: usize,
+    pub home_scroll_offset: usize,
+    pub logs_scroll_offset: usize,
     pub refresh_rate: f64,
     pub sqlite_pool: SqlitePool,
     pub scan_id: String,
@@ -109,11 +110,35 @@ impl Tui {
                     KeyCode::Char('h') | KeyCode::Char('H') => self.current_tab = Tab::Home,
                     KeyCode::Char('l') | KeyCode::Char('L') => self.current_tab = Tab::Logs,
                     KeyCode::Up => {
-                        if self.scroll_offset > 0 {
-                            self.scroll_offset -= 1;
+                        match self.current_tab {
+                            Tab::Home => {
+                                if self.home_scroll_offset > 0 {
+                                    self.home_scroll_offset -= 1;
+                                }
+                            }
+                            Tab::Logs => {
+                                if self.logs_scroll_offset > 0 {
+                                    self.logs_scroll_offset -= 1;
+                                }
+                            }
                         }
                     }
-                    KeyCode::Down => self.scroll_offset += 1,
+                    KeyCode::Down => {
+                        match self.current_tab {
+                            Tab::Home => {
+                                let found_len = self.results.read().unwrap().found.len() as i32;
+                                if self.home_scroll_offset < found_len as usize - 1 {
+                                    self.home_scroll_offset += 1;
+                                }
+                            }
+                            Tab::Logs => {
+                                let logs_len = self.logs.read().unwrap().len() as i32;
+                                if self.logs_scroll_offset < logs_len as usize - 1 {
+                                    self.logs_scroll_offset += 1;
+                                }
+                            }
+                        }
+                    },
                     // left and right should change log level debug, info, warn, error
                     KeyCode::Left => {
                         match self.current_tab {
@@ -225,7 +250,7 @@ impl Tui {
 
         let mut displayed_list = vec![];
         for (index, result) in found_items.found.iter().enumerate() {
-            if index >= self.scroll_offset && index < self.scroll_offset + visible_items as usize {
+            if index >= self.home_scroll_offset && index < self.home_scroll_offset + visible_items as usize {
                 let found_style = Style::default().fg(Color::Green);
 
                 let index_cell = Cell::from(format!("{}", index + 1));
@@ -304,7 +329,7 @@ impl Tui {
 
         for (index, log) in self.logs.read().unwrap().iter().enumerate() {
             // Filter logs based on the log level filter
-            if index < self.scroll_offset || index >= self.scroll_offset + visible_items {
+            if index < self.logs_scroll_offset || index >= self.logs_scroll_offset + visible_items {
                 continue;
             }
 
