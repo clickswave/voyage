@@ -6,7 +6,7 @@ on:
   push:
     branches: [ main, dev ]
     tags:
-      - 'v*.*.*'
+      - 'v[0-9]+.[0-9]+.[0-9]+'
   pull_request:
     branches: [ main, dev ]
 
@@ -94,7 +94,6 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           Compress-Archive -Path "${{ steps.artifact_details.outputs.BINARY_PATH }}" -DestinationPath "${{ steps.artifact_details.outputs.ARCHIVE_NAME }}"
-          # Optional: Include other files like README, LICENSE in the archive
           # Copy-Item -Path "LICENSE", "README.md" -Destination "${{ steps.artifact_details.outputs.BINARY_DIR }}"
           # Compress-Archive -Path "${{ steps.artifact_details.outputs.BINARY_PATH }}", "${{ steps.artifact_details.outputs.BINARY_DIR }}\LICENSE", "${{ steps.artifact_details.outputs.BINARY_DIR }}\README.md" -DestinationPath "${{ steps.artifact_details.outputs.ARCHIVE_NAME }}" -Force
         shell: powershell

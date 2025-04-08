@@ -1,4 +1,5 @@
-#!/bin/bash
+#!/bin/sh
+# POSIX compatible script for installing Voyage
 
 set -e  # Exit immediately if a command exits with a non-zero status
 
@@ -8,47 +9,50 @@ BUILD_DIR="/tmp/voyage_build"
 
 # Parse arguments
 INSTALL_DIR="$DEFAULT_INSTALL_DIR"
-while [[ "$#" -gt 0 ]]; do
+while [ "$#" -gt 0 ]; do
     case "$1" in
         --install-dir)
             INSTALL_DIR="$2"
             shift 2
             ;;
         *)
-            echo "Unknown option: $1"
+            printf "Unknown option: %s\n" "$1" >&2
             exit 1
             ;;
     esac
 done
 
 # Ensure INSTALL_DIR is an absolute path
-if command -v realpath &>/dev/null; then
-    INSTALL_DIR="$(realpath "$INSTALL_DIR")"
-elif command -v grealpath &>/dev/null; then
-    INSTALL_DIR="$(grealpath -m "$INSTALL_DIR")"
-elif command -v python3 &>/dev/null; then
-    INSTALL_DIR="$(python3 -c "import os; print(os.path.abspath('$INSTALL_DIR'))")"
-else
-    echo "Error: realpath, grealpath, or Python 3 is required to resolve paths."
-    exit 1
-fi
+resolve_path() {
+    case "$1" in
+        /*)
+            printf "%s\n" "$1"
+            ;;
+        *)
+            pwd_val=$(pwd)
+            printf "%s/%s\n" "$pwd_val" "$1"
+            ;;
+    esac
+}
+
+INSTALL_DIR=$(resolve_path "$INSTALL_DIR")
 
 VOYAGE_DIR="$INSTALL_DIR/voyage"
 BIN_DIR="$INSTALL_DIR/bin"
 
 # Ensure dependencies are installed
 dep_check() {
-    if ! command -v git &>/dev/null; then
-        echo "Error: git is not installed. Please install git and try again."
+    if ! command -v git >/dev/null 2>&1; then
+        printf "Error: git is not installed. Please install git and try again.\n" >&2
         exit 1
     fi
-    if ! command -v cargo &>/dev/null; then
-        echo "Error: Rust (cargo) is not installed. Please install Rust and try again."
+    if ! command -v cargo >/dev/null 2>&1; then
+        printf "Error: Rust (cargo) is not installed. Please install Rust and try again.\n" >&2
         exit 1
     fi
-    if ! rustup show active-toolchain &>/dev/null; then
-        echo "Error: Rust toolchain is not set. Please run the following command to set it up:"
-        echo "  rustup default stable"
+    if ! rustup show active-toolchain >/dev/null 2>&1; then
+        printf "Error: Rust toolchain is not set. Please run the following command to set it up:\n" >&2
+        printf "  rustup default stable\n" >&2
         exit 1
     fi
 }
@@ -57,57 +61,59 @@ dep_check
 
 # Create installation directories
 sudo mkdir -p "$VOYAGE_DIR" "$BIN_DIR"
-sudo chown -R "$USER:$(id -gn)" "$INSTALL_DIR"
+sudo chown -R "$USER:$(id -g -n)" "$INSTALL_DIR"
 
 # Create build directory in /tmp
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
-echo "Using build directory: $BUILD_DIR"
+printf "Using build directory: %s\n" "$BUILD_DIR"
 cd "$BUILD_DIR"
 
-echo "Cloning Voyage repository..."
+printf "Cloning Voyage repository...\n"
 git clone "$REPO_URL" .
 
 # Build the project
-echo "Building Voyage..."
+printf "Building Voyage...\n"
 cargo build --release
 
 # Move binary to voyage directory
 mkdir -p "$VOYAGE_DIR"
-echo "Installing Voyage..."
+printf "Installing voyage in %s\n" "$VOYAGE_DIR"
 mv "target/release/voyage" "$VOYAGE_DIR/voyage"
 chmod +x "$VOYAGE_DIR/voyage"
 
 # Create symlink in bin directory
 ln -sf "$VOYAGE_DIR/voyage" "$BIN_DIR/voyage"
 
-echo "Creating PATH entry..."
-CONFIG_FILES=(
-    "$HOME/.bashrc"
-    "$HOME/.zshrc"
-    "$HOME/.config/fish/config.fish"
-)
-
+printf "Creating PATH entry...\n"
+CONFIG_FILES="$HOME/.bashrc:$HOME/.zshrc:$HOME/.config/fish/config.fish"
+IFS=':'
 SHELL_FOUND=false
-for CONFIG_FILE in "${CONFIG_FILES[@]}"; do
+for CONFIG_FILE in $CONFIG_FILES; do
     if [ -f "$CONFIG_FILE" ]; then
         if grep -q "$BIN_DIR" "$CONFIG_FILE" 2>/dev/null; then
-            echo "$BIN_DIR is already in PATH in $CONFIG_FILE"
+            printf "%s is already in PATH in %s\n" "$BIN_DIR" "$CONFIG_FILE"
         else
-            echo "export PATH=\"$BIN_DIR:\$PATH\"" >> "$CONFIG_FILE"
-            echo "Added $BIN_DIR to PATH in $CONFIG_FILE"
+            printf '%s\n' "export PATH=\"$BIN_DIR:\$PATH\"" >> "$CONFIG_FILE"
+            printf "Added %s to PATH in %s\n" "$BIN_DIR" "$CONFIG_FILE"
         fi
         SHELL_FOUND=true
     fi
 done
+unset IFS
 
-if ! $SHELL_FOUND; then
-    echo "No valid shell configuration files found. Please add the following line manually:"
-    echo "  export PATH=\"$BIN_DIR:\$PATH\""
+if [ ! "$SHELL_FOUND" = "true" ]; then
+    printf "No valid shell configuration files found. Please add the following line manually:\n"
+    printf "  export PATH=\"%s:\$PATH\"\n" "$BIN_DIR"
 fi
 
 # Clean up
-echo "Cleaning up..."
+printf "Cleaning up...\n"
 rm -rf "$BUILD_DIR"
 
-echo "Voyage installed successfully in $INSTALL_DIR! You can now run: voyage --help"
+printf -- "--------------------------------------------------------------------\n"
+printf -- "|      Voyage has been installed. Thank you for choosing us.       |\n"
+printf -- "|                                                                  |\n"
+printf -- "|        Please reopen your terminal or source your rc file        |\n"
+printf -- "|                   For more info: voyage --help                   |\n"
+printf -- "--------------------------------------------------------------------\n"
