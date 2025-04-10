@@ -1,12 +1,15 @@
 use sha2::Digest;
-use tokio::fs::{read_to_string, File};
-use tokio::io::{AsyncReadExt};
+use tokio::fs::File;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 
 pub async fn read_lines(file_path: &str) -> Result<Vec<String>, anyhow::Error> {
+    let file = File::open(file_path).await?;
+    let reader = BufReader::new(file);
+    let mut lines = reader.lines();
     let mut result = Vec::new();
 
-    for line in read_to_string(file_path).await?.lines() {
-        result.push(line.to_string())
+    while let Some(line) = lines.next_line().await? {
+        result.push(line);
     }
 
     Ok(result)
