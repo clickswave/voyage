@@ -8,7 +8,6 @@
 **/*.rlib
 
 # Cargo
-Cargo.lock
 .cargo/
 .cargo-targets.toml
 
