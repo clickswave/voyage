@@ -7,7 +7,7 @@
 <img src="https://img.shields.io/badge/Language-Rust-%23B7410E.svg?style=for-the-badge&logo=rust&logoColor=white">
 </a>
 <a>
-<img src="https://img.shields.io/badge/PLATFORMS-WINDOWS | MAC | LINUX-%236bc900.svg?style=for-the-badge&logo=Material Design Icons&logoColor=white">
+<img src="https://img.shields.io/badge/OS-WINDOWS%20%7C%20MAC%20%7C%20LINUX-2ECC71?style=for-the-badge&logo=databricks&logoColor=white&labelColor=555555">
 </a>
 <a href="https://discord.gg/QMuyWSY5sa?utm_source=github&utm_medium=web">
 <img src="https://img.shields.io/badge/COMMUNITY-DISCORD-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white">
@@ -136,3 +136,4 @@ Voyage is licensed under the **GNU General Public License v3.0 (GPLv3)**. See LI
 ## Links
 
 **Website:** voyage.vg
+
