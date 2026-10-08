@@ -1,5 +1,8 @@
 ![Voyage](https://github.com/clickswave/voyage/blob/main/static/readme-cover.png?raw=true)
 
+> **voyage is now developed in the [Crossfyre toolchain](https://github.com/clickswave/crossfyre-toolchain).** This repository keeps the history of the standalone tool and its last release, v0.0.1. New versions, fixes and issues belong in the toolchain repository.
+
+
 **Voyage is a subdomain enumeration tool built in Rust that combines active and passive discovery methods. It keeps track of progress using SQLite, so you can stop and resume scans without repeating work. The tool features a terminal user interface (TUI) for real-time monitoring and is designed to be fast and efficient, leveraging multi-threading to handle large-scale reconnaissance.**
 
 <p align="center">
@@ -24,7 +27,7 @@
   Utilizes both passive intelligence gathering and active brute-force techniques for comprehensive coverage.
 
 - **Configurable Performance**  
-  Adjust threads, request intervals and other parameters mid-scan to balance speed and stealth.
+  Adjust threads, request intervals and other parameters mid-scan to balance speed against the load on the target.
 
 - **Selective Enumeration**  
   Disable active or passive enumeration modes, or exclude specific sources and techniques.
@@ -42,28 +45,17 @@
 
 ## Installation
 
-### Linux and MacOS
-**A one-liner if you are feeling brave**
+Install the current voyage from the toolchain:
+
 ```bash
-curl https://raw.githubusercontent.com/clickswave/voyage/refs/heads/main/install.sh | bash
-```
-**Recommended method**
-```bash
-curl https://raw.githubusercontent.com/clickswave/voyage/refs/heads/main/install.sh -o voyage-install.sh
-# read the script to see what it does
-bash voyage-install.sh
+cargo install --git https://github.com/clickswave/crossfyre-toolchain.git voyage
 ```
 
-### Windows
-**Recommended method**
-```powershell
-# inside powershell terminal
-git clone https://github.com/clickswave/voyage
-cd voyage
-.\install.ps1
-```
+or install the whole toolchain, voyage included, with the installer in the [toolchain README](https://github.com/clickswave/crossfyre-toolchain#install).
 
-### From Source
+### This repository's last version
+
+To build v0.0.1 from this repository:
 
 ```
 git clone https://github.com/clickswave/voyage.git
@@ -71,9 +63,7 @@ cd voyage
 cargo build --release
 ```
 
-### Using Prebuilt Binaries
-
-Download the latest release from the Releases page and extract it.
+Prebuilt v0.0.1 binaries are on the Releases page.
 
 ## Usage
 
